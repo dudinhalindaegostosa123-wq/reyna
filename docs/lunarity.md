@@ -1,18 +1,14 @@
 # Identidade da Lunarity
 
-A home tem composição própria em marfim, grafite e verde prateado, tipografia
-editorial, símbolo lunar, abertura em duas colunas e navegação por regiões.
-As fotos locais existentes podem ser reaproveitadas. Uma imagem de banner
-configurada no banco pode substituir a foto de abertura, mas os títulos de
-campanhas da marca anterior não são reaproveitados na home.
+A pedido da proprietária, a home mantém o layout anterior: fundo preto,
+banner de largura inteira, seção de recém-chegados, categorias e blocos de
+materiais. A reformulação clara foi retirada. As mudanças visuais se limitam
+à marca Lunarity no cabeçalho/rodapé e ao pequeno símbolo lunar.
 
-A seleção de produtos continua vindo do catálogo real. Quando não há novidades,
-a home consulta o catálogo geral. Em caso de indisponibilidade mostra um estado
-vazio com navegação; não inventa produtos, avaliações, estoque ou preços.
-
-O cabeçalho deixou de sobrepor o primeiro bloco da home. Os contatos e o endereço
-da loja anterior foram removidos da vitrine. Sem configuração própria, WhatsApp,
-Instagram, e-mail e o botão de envio de projetos não são exibidos.
+O catálogo e os componentes existentes continuam sendo usados. Os banners
+locais permanecem como fallback quando o banco novo ainda não tem banners.
+Instagram, WhatsApp, e-mail e endereço da marca anterior ficam ocultos enquanto
+a proprietária não informa os próprios contatos.
 
 ## Configurações opcionais na Vercel
 
@@ -40,8 +36,8 @@ Esta mudança não executa SQL nem altera os workflows de transferência de foto
 
 ## Validação local
 
-Testes da home verificam marca, navegação, uso de produtos reais, fallback quando
-o catálogo está vazio/indisponível e ausência de contatos herdados. Verificação
+Testes da home verificam o banner e as categorias locais quando o banco não tem
+banners, a renderização dos produtos recebidos e a ausência de contatos herdados. Verificação
 em Chromium cobre desktop e celular, menu, teclado, navegação e ausência de
 rolagem horizontal. Dados de catálogo foram simulados localmente para esse teste,
 sem usar credenciais de produção. O build foi exercitado com a API local de teste

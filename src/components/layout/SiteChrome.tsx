@@ -43,7 +43,7 @@ export default function SiteChrome({ children }: { children: React.ReactNode }) 
   }
 
   return (
-    <div className={`storefront-theme ${path === '/' ? 'lunarity-home-shell' : ''} min-h-screen bg-store-canvas text-store-text`}>
+    <div className="storefront-theme min-h-screen bg-store-canvas text-store-text">
       <CommerceSync />
       <Header />
       <main>{children}</main>

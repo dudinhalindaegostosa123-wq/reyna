@@ -51,6 +51,8 @@ const NAV_LINKS: NavLink[] = [
 export default function Header() {
   const pathname = usePathname()
   const isHome = pathname === '/'
+  const headerRef = useRef<HTMLElement>(null)
+  const [headerHeight, setHeaderHeight] = useState(136)
 
   const categoryButtonRef = useRef<HTMLButtonElement>(null)
   const mobileButtonRef = useRef<HTMLButtonElement>(null)
@@ -68,6 +70,16 @@ export default function Header() {
     'loading' | 'ready' | 'error'
   >('loading')
   const [categoryAttempt, setCategoryAttempt] = useState(0)
+
+  useEffect(() => {
+    const element = headerRef.current
+    if (!element) return
+    const measure = () => setHeaderHeight(element.getBoundingClientRect().height)
+    measure()
+    const observer = new ResizeObserver(measure)
+    observer.observe(element)
+    return () => observer.disconnect()
+  }, [])
 
   const { itemCount } = useCartStore()
   const count = itemCount()
@@ -380,6 +392,8 @@ export default function Header() {
       </div>
 
       <header
+        ref={headerRef}
+        style={{ marginBottom: isHome ? -headerHeight : undefined }}
         onMouseEnter={() => {
           if (!isMobile) setHovered(true)
         }}
@@ -399,9 +413,7 @@ export default function Header() {
           'relative z-30 border-b',
           'transition-[background-color,color,border-color] duration-200',
           'motion-reduce:transition-none',
-          isHome
-            ? 'border-[#d6dbd5] bg-[#f5f4ef] text-[#293335]'
-            : solidBackground
+          solidBackground
             ? 'border-[#34332F] bg-[#000000] text-[#F2F1ED]'
             : 'border-transparent bg-transparent text-white'
         )}
@@ -540,7 +552,7 @@ export default function Header() {
               className={clsx(
                 'whitespace-nowrap text-[12px] uppercase tracking-wide',
                 'transition-colors hover:text-[#B8986A]',
-                !solidBackground && !isHome &&
+                !solidBackground &&
                   'drop-shadow-[0_1px_3px_rgba(0,0,0,0.45)]'
               )}
             >
