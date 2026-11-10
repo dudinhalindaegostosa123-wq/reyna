@@ -61,3 +61,10 @@
 .lunarity-brand-hero p{max-width:650px;margin-inline:auto;font-size:12px;line-height:1.8;letter-spacing:.1em;text-transform:none;text-wrap:balance}
 @media(min-width:768px){.lunarity-brand-hero-content{padding-top:100px;padding-bottom:180px}.lunarity-brand-hero p{font-size:14px}}
 @media(max-width:767px){.lunarity-brand-hero{min-height:76svh}.lunarity-brand-hero h1{font-size:38px;max-width:330px}.lunarity-brand-hero p{max-width:310px;letter-spacing:.05em}}
+
+.lunarity-materials .lunarity-material-choices a{position:relative;min-height:116px;align-items:flex-start;justify-content:center;gap:12px;flex-direction:row;text-align:left;padding:22px 30px 22px 18px;background:linear-gradient(135deg,#171715,#080808);border-color:#39352e;border-radius:10px;transition:border-color .2s,background .2s}
+.lunarity-materials .lunarity-material-choices a:hover{border-color:#947b57;background:linear-gradient(135deg,#24211c,#10100f)}
+.lunarity-materials .lunarity-material-choices a>span:first-child{width:32px;height:32px;flex-shrink:0;box-shadow:0 0 22px #c5ad8612,inset 0 0 0 1px #ffffff40}
+.lunarity-materials .lunarity-material-choices a>span:last-child{align-self:center;max-width:145px;line-height:1.5}
+.lunarity-materials .lunarity-material-choices a:after{content:'↗';position:absolute;right:12px;top:12px;font-size:12px;color:#a99475}
+@media(max-width:420px){.lunarity-materials .lunarity-material-choices a{flex-direction:column;gap:10px;min-height:132px;padding:16px}.lunarity-materials .lunarity-material-choices a>span:last-child{align-self:flex-start}}

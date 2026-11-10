@@ -197,6 +197,45 @@ export default async function HomePage() {
         <ManagedHero banner={hero} />
       )}
 
+      {/* Benefícios */}
+
+      <section className="border-y border-[color:var(--home-border,#E5E5E5)] bg-[#101010]">
+        <div className="mx-auto grid max-w-7xl grid-cols-2 gap-4 px-4 py-5 text-center md:grid-cols-4">
+          {[
+            {
+              label: 'Joias em titânio',
+              sub: 'Confira a composição de cada peça',
+            },
+            {
+              label: 'Ouro 18K maciço',
+              sub: 'Conheça as opções da coleção',
+            },
+            {
+              label: 'Materiais e acabamentos',
+              sub: 'Detalhes na página de cada joia',
+            },
+            {
+              label: 'Frete grátis',
+              sub: STORE_INFORMATION.retailShipping,
+            },
+          ].map(item => (
+            <div
+              key={item.label}
+              className="py-2"
+            >
+              <p className="text-[12px] font-medium uppercase tracking-[0.1em]">
+                {item.label}
+              </p>
+
+              <p className="mt-0.5 text-[11px] text-[color:var(--home-muted,#6B6B6B)]">
+                {item.sub}
+              </p>
+            </div>
+          ))}
+        </div>
+      </section>
+
+
       {/* Recém-chegados */}
 
       <section
@@ -277,43 +316,6 @@ export default async function HomePage() {
         <HomeColors banners={banners} />
       </Suspense>
 
-      {/* Benefícios */}
-
-      <section className="border-y border-[color:var(--home-border,#E5E5E5)] bg-[#101010]">
-        <div className="mx-auto grid max-w-7xl grid-cols-2 gap-4 px-4 py-5 text-center md:grid-cols-4">
-          {[
-            {
-              label: 'Joias em titânio',
-              sub: 'Confira a composição de cada peça',
-            },
-            {
-              label: 'Ouro 18K maciço',
-              sub: 'Conheça as opções da coleção',
-            },
-            {
-              label: 'Materiais e acabamentos',
-              sub: 'Detalhes na página de cada joia',
-            },
-            {
-              label: 'Frete grátis',
-              sub: STORE_INFORMATION.retailShipping,
-            },
-          ].map(item => (
-            <div
-              key={item.label}
-              className="py-2"
-            >
-              <p className="text-[12px] font-medium uppercase tracking-[0.1em]">
-                {item.label}
-              </p>
-
-              <p className="mt-0.5 text-[11px] text-[color:var(--home-muted,#6B6B6B)]">
-                {item.sub}
-              </p>
-            </div>
-          ))}
-        </div>
-      </section>
 
 
       {STORE_INFORMATION.instagram && <InstagramGrid />}
