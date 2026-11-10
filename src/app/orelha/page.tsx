@@ -84,15 +84,15 @@ const REGIONS: EarCategory[] = [
 const PROJECT_IMAGES = [
   {
     image: '/banners/projeto-verde.webp',
-    position: 'translate-y-3 -rotate-6',
+    position: 'md:translate-y-4',
   },
   {
     image: '/banners/projeto-dourado.webp',
-    position: '-translate-y-3',
+    position: 'md:-translate-y-4',
   },
   {
     image: '/banners/projeto-azul.webp',
-    position: 'translate-y-3 rotate-6',
+    position: 'md:translate-y-4',
   },
 ]
 
@@ -139,6 +139,7 @@ export default async function EarPage() {
         aria-labelledby="ear-regions-title"
         className="mx-auto max-w-7xl px-4 pb-8 pt-6 sm:px-6 md:px-10 md:pb-10 md:pt-8"
       >
+        <p className="mb-3 text-[10px] uppercase tracking-[0.22em] text-[#A99475]">Sua composição começa aqui</p>
         <div className="mb-6 flex items-end justify-between gap-4 md:mb-7">
           <h1
             id="ear-regions-title"
@@ -174,10 +175,10 @@ export default async function EarPage() {
                 <Link
                   href={href}
                   prefetch={false}
-                  className="group block rounded-2xl text-center focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-[#B8986A]"
+                  className="group block overflow-hidden rounded-xl border border-[#39352E] bg-gradient-to-b from-[#191917] to-[#0B0B0B] pb-3 text-center transition-colors hover:border-[#947B57] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-[#B8986A]"
                 >
-                  <div className="mx-auto w-full max-w-[150px] rounded-full border border-transparent p-1 transition-colors duration-300 group-hover:border-[#BDA98B] group-focus-visible:border-[#BDA98B]">
-                    <div className="relative aspect-square overflow-hidden rounded-full bg-store-raised">
+                  <div className="mx-auto w-full p-1.5">
+                    <div className="relative aspect-[4/5] overflow-hidden rounded-lg bg-store-raised">
                       <Image
                         src={region.image}
                         alt={
@@ -192,7 +193,7 @@ export default async function EarPage() {
                     </div>
                   </div>
 
-                  <h2 className="mt-2 whitespace-nowrap font-display text-[13px] font-light transition-colors group-hover:text-store-accent sm:text-[18px]">
+                  <h2 className="mt-2 whitespace-nowrap font-display text-[12px] font-light transition-colors group-hover:text-[#C5AD86] sm:text-[16px]">
                     {region.name}
                   </h2>
                 </Link>
@@ -207,17 +208,19 @@ export default async function EarPage() {
         aria-labelledby="ear-project-title"
         className="mx-auto max-w-7xl px-4 pb-8 sm:px-6 md:px-10 md:pb-10"
       >
-        <div className="relative isolate overflow-hidden rounded-[28px] bg-store-raised px-6 py-8 sm:px-8 md:rounded-[44px] md:px-12 md:py-12">
+        <div className="relative isolate overflow-hidden rounded-xl border border-[#39352E] bg-gradient-to-br from-[#191917] via-[#0E0E0D] to-black px-6 py-8 sm:px-8 md:px-12 md:py-12">
           <div
             aria-hidden="true"
-            className="pointer-events-none absolute -right-20 -top-28 -z-10 h-80 w-80 rounded-full bg-[#E5D9C8]/50 blur-3xl"
+            className="pointer-events-none absolute -right-20 -top-28 -z-10 h-80 w-80 rounded-full bg-[#947B57]/10 blur-3xl"
           />
 
           <div className="grid items-center gap-7 md:grid-cols-2 md:gap-10">
             <div className="max-w-lg">
+              <p className="mb-4 text-[10px] uppercase tracking-[0.22em] text-[#A99475]">Feito do seu jeito</p>
               <h2
                 id="ear-project-title"
-                className="max-w-sm font-display text-[36px] font-light leading-[1.08] tracking-[-0.035em] sm:text-4xl lg:text-5xl"
+                className="max-w-sm text-[36px] font-light leading-[1.08] tracking-[-0.025em] sm:text-4xl lg:text-5xl"
+                style={{fontFamily: 'var(--font-cormorant), Georgia, serif'}}
               >
                 Monte seu projeto auricular
               </h2>
@@ -230,7 +233,7 @@ export default async function EarPage() {
 
               <Link
                 href="/projeto-auricular"
-                className="mt-6 inline-flex items-center justify-center gap-5 rounded-full bg-store-action px-6 py-3.5 text-[11px] tracking-[0.04em] text-[#FAFAF8] transition-colors hover:bg-[#504638] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-[#947B57]"
+                className="mt-6 inline-flex items-center justify-center gap-5 rounded-lg border border-[#947B57]/50 bg-[#171511] px-6 py-3.5 text-[11px] tracking-[0.04em] text-[#FAFAF8] transition-colors hover:border-[#C5AD86] hover:bg-[#242019] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-[#947B57]"
               >
                 Começar meu projeto
 
@@ -254,7 +257,7 @@ export default async function EarPage() {
               {PROJECT_IMAGES.map(item => (
                 <div
                   key={item.image}
-                  className={`relative aspect-square w-[31%] max-w-[170px] overflow-hidden rounded-full border-[3px] border-store-border shadow-[0_8px_24px_rgba(67,49,27,0.08)] ${item.position}`}
+                  className={`relative aspect-[3/4] w-[31%] max-w-[170px] overflow-hidden rounded-xl border border-[#75644C] shadow-[0_12px_32px_rgba(0,0,0,0.4)] ${item.position}`}
                 >
                   <Image
                     src={item.image}
