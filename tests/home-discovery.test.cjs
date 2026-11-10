@@ -16,12 +16,13 @@ test('discovery features ear, nose and navel while retaining every configured ca
  assert.equal(new Set(all.map(item=>item.href)).size,items.length)
  assert.equal(layout.more.length,5)
 })
-test('banner grid keeps working links and mobile photos, and decorations stay out of accessible names',()=>{
+test('banner grid keeps working links and mobile photos without numbered or starred overlays',()=>{
  const tree=expand(api.default({items}))
  assert.equal(nodes(tree,n=>n.type==='Link').length,9)
  assert.equal(nodes(tree,n=>n.type==='Image').length,8)
  assert.equal(nodes(tree,n=>n.type==='source' && n.props.srcSet==='/mobile.webp').length,8)
- assert.equal(nodes(tree,n=>n.props.className==='lunarity-discovery-index' && n.props['aria-hidden']==='true').length,8)
+ assert.equal(nodes(tree,n=>n.props.className==='lunarity-discovery-index').length,0)
+ assert.ok(!JSON.stringify(tree).includes('✧'))
  for(const item of items)assert.equal(nodes(tree,n=>n.type==='Link' && n.props.href===item.href).length,1)
 })
 test('empty, single, two and custom category setups do not invent missing banners or break links',()=>{
