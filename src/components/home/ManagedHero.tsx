@@ -9,12 +9,14 @@ export default function ManagedHero({
   banner: SiteBanner
 }) {
   const darkText = banner.text_tone === 'dark'
+  const lunar = banner.id === 'lunarity-hero'
 
   return (
     <section
       className={
         'relative isolate flex min-h-[70vh] items-center ' +
         'justify-center overflow-hidden md:min-h-[80vh] ' +
+        (lunar ? 'lunarity-brand-hero ' : '') +
         (
           darkText
             ? 'text-[#25231F]'
@@ -42,7 +44,9 @@ export default function ManagedHero({
         aria-hidden="true"
         className="pointer-events-none absolute inset-0 -z-10"
         style={{
-          background: darkText
+          background: lunar
+            ? 'linear-gradient(180deg, rgba(0,0,0,0.16), rgba(0,0,0,0.04) 60%, rgba(0,0,0,0.12))'
+            : darkText
             ? 'rgba(255,255,255,0.25)'
             : (
                 'linear-gradient(180deg, ' +
@@ -54,7 +58,7 @@ export default function ManagedHero({
         }}
       />
 
-      <div className="relative z-10 max-w-6xl space-y-6 px-6 py-12 text-center">
+      <div className={`relative z-10 max-w-6xl space-y-6 px-6 py-12 text-center${lunar ? ' lunarity-brand-hero-content' : ''}`}>
         <h1
           className="font-banner break-words text-6xl leading-none tracking-[0.08em] md:text-8xl"
           style={{

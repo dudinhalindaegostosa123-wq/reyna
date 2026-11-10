@@ -21,15 +21,15 @@ export const dynamic = 'force-dynamic'
 export const maxDuration = 60
 
 const FALLBACK_HERO: SiteBanner = {
-  id: 'fallback-hero',
+  id: 'lunarity-hero',
   slot: 'hero',
-  title: 'NOVA COLEÇÃO',
-  subtitle: 'Exclusivos Swarovski',
-  href: '/categoria/swarovski',
-  cta: 'Explorar agora',
-  alt: 'Coleção Swarovski da Lunarity',
-  image_desktop: '/banners/banner-swarovski.webp',
-  image_mobile: '',
+  title: 'Cada fase, um novo brilho.',
+  subtitle: 'Piercings de titânio para composições que são a sua cara.',
+  href: '/categoria/todos',
+  cta: 'Encontre sua joia',
+  alt: 'Composição ilustrativa de joias prateadas sobre pedra escura',
+  image_desktop: '/banners/lunarity-hero.webp',
+  image_mobile: '/banners/lunarity-hero-mobile.webp',
   text_tone: 'light',
   position: 0,
 }
@@ -131,9 +131,11 @@ export default async function HomePage() {
 
   const useDefaultBanners = banners === null || banners.length === 0
 
-  const hero = useDefaultBanners
-    ? FALLBACK_HERO
-    : banners.find(banner => banner.slot === 'hero')
+  const configuredHero = banners?.find(banner => banner.slot === 'hero')
+  const legacyCampaign = configuredHero && /swarovski/i.test([
+    configuredHero.title, configuredHero.subtitle, configuredHero.href, configuredHero.image_desktop,
+  ].join(' '))
+  const hero = configuredHero && !legacyCampaign ? configuredHero : FALLBACK_HERO
 
   const categoryBanners = (useDefaultBanners
     ? CATEGORY_BANNERS
@@ -160,9 +162,6 @@ export default async function HomePage() {
       {hero && (
         <ManagedHero banner={hero} />
       )}
-
-      {/* Apresentação dos materiais, mais acima na página. */}
-      <MaterialsSection />
 
       {/* Recém-chegados */}
 
@@ -200,6 +199,15 @@ export default async function HomePage() {
       {/* Categorias em uma composição mais compacta, mantendo os banners existentes. */}
       <CategoryDiscoveryGrid items={categoryBanners} />
 
+      {categoryBanners.some(item => /orelha/i.test(item.name)) && <section aria-labelledby="ear-details-title" className="mx-auto max-w-[1600px] px-4 pb-10 sm:px-6 md:px-10 md:pb-14">
+        <div className="lunarity-ear-heading"><span className="lunarity-home-sparkle" aria-hidden="true">✧</span><h2 id="ear-details-title" className="font-display text-xl sm:text-2xl">Os detalhes fazem a composição.</h2><span className="lunarity-home-rule" aria-hidden="true" /></div>
+        <div className="lunarity-ear-grid"><EarMiniBanners images={homeImageMap(banners,'mini')} /></div>
+      </section>}
+
+      {/* 5. Materiais — depois do grid de detalhes. */}
+      <MaterialsSection />
+
+      {/* 6. Inspiração Lunarity e Essenciais. */}
       <aside className="mx-auto max-w-7xl px-4 pt-2 sm:px-6 md:px-10" aria-label="Inspiração Lunarity"><div className="lunarity-home-note"><div><p className="lunarity-home-eyebrow">LUNARITY · DO SEU JEITO</p><p className="font-display text-xl tracking-tight sm:text-2xl">Uma joia muda o detalhe.<br className="sm:hidden" /> A combinação conta a sua história.</p></div><Link href="/categoria/todos" className="lunarity-discovery-all">Encontrar minha próxima joia <Arrow /></Link><span className="lunarity-home-note-orbit" aria-hidden="true" /></div></aside>
 
       {/* Essenciais */}
@@ -250,11 +258,6 @@ export default async function HomePage() {
           </Link>
         )}
       </section>
-
-      {categoryBanners.some(item => /orelha/i.test(item.name)) && <section aria-labelledby="ear-details-title" className="mx-auto max-w-[1600px] px-4 pb-10 sm:px-6 md:px-10 md:pb-14">
-        <div className="lunarity-ear-heading"><span className="lunarity-home-sparkle" aria-hidden="true">✧</span><h2 id="ear-details-title" className="font-display text-xl sm:text-2xl">Os detalhes fazem a composição.</h2><span className="lunarity-home-rule" aria-hidden="true" /></div>
-        <div className="lunarity-ear-grid"><EarMiniBanners images={homeImageMap(banners,'mini')} /></div>
-      </section>}
 
       <StoneColorCarousel colors={colors.map(({ id, name, color }) => ({ id, name, color,image:homeImageMap(banners,'stone')[`/cores/${id}`] }))} />
 

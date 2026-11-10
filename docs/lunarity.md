@@ -57,11 +57,45 @@ do acesso ao Google Fonts nesta máquina. A validação do deploy real é separa
 
 ## Ordem dos blocos da home
 
-Após o banner principal, a apresentação “Cada detalhe começa na escolha do
-material” aparece mais acima. O bloco de inspiração Lunarity e o grid de
-Essenciais permanecem juntos no meio da página, após as categorias. A seção
-“Titânio grau implante” fecha o conteúdo da home, imediatamente antes do rodapé.
+A ordem segue a numeração enviada pela proprietária:
+
+1. Banner principal da Lunarity.
+2. Recém-chegados.
+3. Grid de categorias.
+4. Grid de detalhes para orelha.
+5. Apresentação dos materiais.
+6. Texto de inspiração Lunarity e Essenciais, juntos.
+7. Titânio grau implante, antes do rodapé.
+
+As cores, quando disponíveis, e a faixa de benefícios continuam antes do bloco
+final de titânio.
+
+## Banner da marca
+
+A composição ilustrativa criada para a Lunarity fica em
+`public/banners/lunarity-hero.webp`, com uma versão menor para celular em
+`public/banners/lunarity-hero-mobile.webp`. A arte não contém texto gravado,
+marca de fabricante ou referência a Swarovski. Os textos e o botão são HTML:
+“Cada fase, um novo brilho”, “Piercings de titânio para composições que são a sua
+cara” e “Encontre sua joia”, levando para `/categoria/todos`.
+
+O posicionamento inferior da foto e o espaço de texto foram ajustados para
+manter as joias visíveis e a navegação sem sobreposição. Campanhas legadas
+que mencionem Swarovski usam o novo banner; outras campanhas configuradas
+continuam disponíveis no editor de banners. A ausência de um hero configurado,
+mesmo com banners de categorias, usa a composição da Lunarity.
 
 Os grids de categorias e detalhes para orelha usam largura máxima de 1600 px no
 desktop. Os banners principais têm duas linhas de 300 px e títulos maiores,
 mantendo o empilhamento adaptado para celular.
+
+## Acesso administrativo
+
+O painel fica em `/admin`, com login em `/admin/login`. O usuário deve existir
+em Authentication → Users do Supabase novo e estar confirmado. Cadastrar seu
+UID em `SERENITY_ADMIN_USER_IDS` na Vercel (Production) e fazer Redeploy.
+O nome técnico dessa variável foi preservado para não alterar a autorização.
+Usuários comuns da loja não ganham permissão administrativa automaticamente.
+Senhas devem ser definidas no Supabase e nunca enviadas no chat ou no Git.
+A liberação do login não instala as tabelas/RPCs que cada módulo administrativo
+exige; o banco preparado inicialmente neste onboarding cobre a vitrine.

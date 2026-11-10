@@ -58,3 +58,11 @@
 @media(max-width:374px){.lunarity-discovery-card-small .lunarity-discovery-arrow{display:none}}
 
 @media(min-width:1024px){.lunarity-discovery .lunarity-home-eyebrow{font-size:11px}.lunarity-ear-grid nav>a>div:last-child>span:first-child{font-size:13px}}
+
+/* A new Lunarity brand image, with room for the existing overlay navigation. */
+.lunarity-brand-hero picture img{object-position:center bottom}
+.lunarity-brand-hero-content{padding-top:150px;padding-bottom:45px;width:100%}
+.lunarity-brand-hero h1{font-size:clamp(42px,6vw,88px);letter-spacing:.015em;line-height:1.04;max-width:1040px;margin-inline:auto;text-wrap:balance}
+.lunarity-brand-hero p{max-width:650px;margin-inline:auto;font-size:12px;line-height:1.8;letter-spacing:.1em;text-transform:none;text-wrap:balance}
+@media(min-width:768px){.lunarity-brand-hero-content{padding-top:170px;padding-bottom:60px}.lunarity-brand-hero p{font-size:15px}}
+@media(max-width:767px){.lunarity-brand-hero{min-height:76svh}.lunarity-brand-hero-content{padding-top:160px;padding-bottom:48px}.lunarity-brand-hero h1{font-size:48px;max-width:370px}.lunarity-brand-hero p{max-width:310px;letter-spacing:.05em}}
