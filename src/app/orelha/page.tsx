@@ -189,6 +189,7 @@ export default async function EarPage() {
                         fill
                         sizes="(max-width: 639px) 22vw, 150px"
                         className="object-cover transition-transform duration-500 group-hover:scale-105 motion-reduce:transform-none motion-reduce:transition-none"
+                        style={region.term === 'daith' ? { scale: '-1 1' } : undefined}
                       />
                     </div>
                   </div>
