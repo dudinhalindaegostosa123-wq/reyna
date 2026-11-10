@@ -329,10 +329,10 @@ export default async function HomePage() {
         className="mx-auto max-w-7xl px-4 pb-8 sm:px-6 md:px-10 md:pb-12 md:pt-2"
       >
         <div className="grid items-center gap-5 md:grid-cols-2 md:gap-10">
-          <div className="relative aspect-[5/4] overflow-hidden rounded-[20px] bg-[#EEE8DE] md:rounded-[28px]">
+          <div className="relative aspect-[5/4] overflow-hidden rounded-xl border border-white/10 bg-[#101010]">
             <Image
-              src="/banners/titanio.webp"
-              alt="Haste labret e labret esfera de titânio sobre uma superfície metálica"
+              src="/banners/lunarity-titanio.webp"
+              alt="Haste labret e esfera de titânio sobre pedras pretas"
               fill
               sizes="(max-width: 767px) 92vw, 50vw"
               className="object-cover object-center"
@@ -357,7 +357,7 @@ export default async function HomePage() {
 
             <Link
               href="/materiais/titanio"
-              className="mt-4 inline-flex min-h-[44px] items-center gap-4 rounded-full bg-[#292621] px-5 py-3 text-[11px] text-white transition-colors hover:bg-[#504638] md:mt-5 md:text-[12px]"
+              className="mt-5 inline-flex min-h-[48px] items-center gap-6 rounded-lg border border-[#947B57]/50 bg-[#171511] px-5 py-3 text-[12px] text-[#F2F1ED] transition-colors hover:border-[#C5AD86] hover:bg-[#242019]"
             >
               Descubra por que é o melhor
               <Arrow />
