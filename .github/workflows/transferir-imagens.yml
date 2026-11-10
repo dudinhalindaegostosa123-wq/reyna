@@ -457,6 +457,8 @@ jobs:
                   except urllib.error.HTTPError as error:
                       if error.code == 404:
                           raise ValueError("HTTP 404: arquivo ausente.")
+                      if error.code in (401, 403):
+                          raise ValueError(f"HTTP {error.code}: acesso recusado pela origem.")
                       if attempt == 2:
                           raise ValueError(f"HTTP {error.code}")
                       time.sleep(2 ** attempt)
@@ -702,4 +704,6 @@ jobs:
               file.write(summary)
 
           print(summary, flush=True)
+          if failures:
+              raise SystemExit("Transferencia incompleta: ha imagens pendentes. Confira o resumo; os arquivos ja transferidos foram preservados.")
           PY

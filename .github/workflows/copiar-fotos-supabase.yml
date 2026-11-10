@@ -1,0 +1,27 @@
+name: Copiar fotos do Supabase original
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: transferir-imagens-serenity
+  cancel-in-progress: false
+
+jobs:
+  copiar:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - name: Copiar arquivos e vincular produtos e variacoes
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
+          SOURCE_SUPABASE_URL: ${{ secrets.SOURCE_SUPABASE_URL }}
+          SOURCE_SUPABASE_PUBLISHABLE_KEY: ${{ secrets.SOURCE_SUPABASE_PUBLISHABLE_KEY }}
+        run: python3 -m scripts.copy_supabase_media
