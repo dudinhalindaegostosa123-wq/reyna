@@ -60,7 +60,7 @@ test('a failed statistic does not hide a valid product list or invent a zero cou
 
 test('name search uses parameterized terms and preserves status and page filters',async()=>{
  const calls=[]
- const chain={select(){return chain},eq(key,value){calls.push(['eq',key,value]);return chain},order(){return chain},range:async(from,to)=>{calls.push(['range',from,to]);return {data:[],count:50,error:null}},then(resolve){return Promise.resolve({count:50,error:null}).then(resolve)}}
+ const chain={select(){return chain},eq(key,value){calls.push(['eq',key,value]);return chain},order(key){assert.notEqual(key,'created_at');calls.push(['order',key]);return chain},range:async(from,to)=>{calls.push(['range',from,to]);return {data:[],count:50,error:null}},then(resolve){return Promise.resolve({count:50,error:null}).then(resolve)}}
  const view=renderer('src/app/admin/produtos/page.tsx',{
   'next/link':{default:'Link'},'next/navigation':{redirect(){throw Error('unexpected')}},
   '@/lib/admin-auth':{adminDatabase:async()=>({db:{from:()=>chain,rpc:(name,args,options)=>{calls.push(['rpc',name,args,options]);return chain}},user:{email:'admin@example.test'}})},
@@ -70,6 +70,7 @@ test('name search uses parameterized terms and preserves status and page filters
  assert.equal(calls[0][1],'lunarity_admin_search_products')
  assert.equal(calls[0][2].p_query,'titanio flor')
  assert.equal(calls[0][3].count,'exact')
+ assert.deepEqual(calls.filter(c=>c[0]==='order').map(c=>c[1]),['name','id'])
  assert.ok(calls.some(c=>c[0]==='eq'&&c[1]==='status'&&c[2]==='published'))
  assert.ok(calls.some(c=>c[0]==='range'&&c[1]===24&&c[2]===47))
  const next=nodes(tree,n=>n.type==='Link'&&n.props.href?.includes('page=3'))[0]

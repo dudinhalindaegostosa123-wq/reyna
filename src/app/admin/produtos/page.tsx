@@ -68,7 +68,7 @@ export default async function AdminProducts({ searchParams = {} }: Props) {
   const [result, allCount, publishedCount, draftCount, variantCount] =
     await Promise.all([
       query
-        .order('created_at', { ascending: false })
+        .order('name', { ascending: true })
         .order('id')
         .range((page - 1) * PER_PAGE, page * PER_PAGE - 1),
       db.from('products').select('id', { count: 'exact', head: true }),
