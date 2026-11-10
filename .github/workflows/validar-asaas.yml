@@ -1,0 +1,30 @@
+name: Validar conexao Asaas
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Ambiente da chave cadastrada em ASAAS_API_KEY
+        required: true
+        default: sandbox
+        type: choice
+        options:
+          - sandbox
+          - production
+
+permissions:
+  contents: read
+
+jobs:
+  validar:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - name: Consultar conta sem criar cobrancas
+        env:
+          ASAAS_API_KEY: ${{ secrets.ASAAS_API_KEY }}
+          ASAAS_ENVIRONMENT: ${{ inputs.environment }}
+        run: python3 scripts/check_asaas.py

@@ -61,3 +61,37 @@ produtos e imagens.
    cotação sem comprar etiqueta.
 5. Configurar credenciais e webhook de produção da própria loja e validar o fluxo
    completo antes de anunciar que a loja está pronta para receber pagamentos.
+
+## Validação da conta Asaas sem cobrar
+
+A base da API está em `src/lib/asaas-server.ts`. Ela fornece criação e consulta de
+clientes/cobranças, Pix, links de fatura para cartão e conferência da referência,
+cliente, ambiente, método e valor. Ela ainda **não está conectada ao checkout**.
+O chamador precisará adquirir a trava de tentativa no banco antes de chamar a
+criação. Uma resposta incerta deve ser reconciliada pela referência, nunca
+reenviada automaticamente. O cliente não coleta números de cartão nem CVV.
+
+A base usa as APIs e modelos publicados no SDK oficial:
+https://github.com/asaasdev/asaas-api-sdk-java
+
+Para testar acesso à conta antes da adaptação do checkout:
+
+1. Criar a chave na conta de **sandbox** do Asaas.
+2. No repositório `reyna`, cadastrar o Repository secret `ASAAS_API_KEY` com a
+   chave de sandbox. Não colar o valor em mensagens.
+3. Executar **Actions → Validar conexao Asaas → Run workflow → sandbox**.
+
+Esse workflow faz somente `GET /v3/myAccount/accountNumber`. O resultado não
+exibe o número da conta e não cria cliente, cobrança ou webhook. Ele não valida
+habilitação de Pix/cartão nem substitui um teste completo de checkout.
+
+As variáveis previstas para o cliente de API na Vercel são `ASAAS_ENVIRONMENT`
+(`sandbox` ou `production`), `ASAAS_API_KEY`, `ASAAS_WEBHOOK_TOKEN` (pelo menos
+32 caracteres) e `ASAAS_PAYMENTS_ENABLED`. O token do webhook é separado da
+chave de API. Ainda não há rota de webhook Asaas instalada. Não cadastrar uma
+URL de webhook até a integração com o banco e o checkout estar concluída.
+A ativação em produção exige deployment de Production e o webhook configurado;
+uma chave de sandbox não é enviada à API de produção, nem vice-versa.
+
+O tamanho da embalagem ainda não foi informado: “caixa pequena de joias” não é
+uma medida verificável. Não foram salvos peso ou dimensões fictícios.
