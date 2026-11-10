@@ -267,10 +267,19 @@ async function read<T>(
   )
 
   if (!response.ok) {
+    let databaseCode = 'UNKNOWN'
+    try {
+      const failure: unknown = await response.json()
+      const code = failure && typeof failure === 'object' && 'code' in failure ? String(failure.code) : ''
+      // SQLSTATE/PostgREST codes are sufficient for diagnosis; no rows, URLs,
+      // response details or credentials are written to logs.
+      if (/^(?:[A-Z0-9]{5}|PGRST\d{3})$/.test(code)) databaseCode = code
+    } catch { /* Upstream failures may return HTML rather than JSON. */ }
     console.error(
       'Falha no catálogo:',
       table,
-      response.status
+      response.status,
+      'código', databaseCode
     )
 
     throw new Error(

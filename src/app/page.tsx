@@ -116,8 +116,26 @@ function ProductPlaceholders() {
   </div>
 }
 
+function rethrowRenderControl(error: unknown) {
+  // Next uses exceptions for dynamic rendering, redirects and not-found pages.
+  // These must never be turned into a successful empty catalog.
+  const digest = error && typeof error === 'object' && 'digest' in error ? String(error.digest) : ''
+  if (digest === 'DYNAMIC_SERVER_USAGE' || digest === 'NEXT_NOT_FOUND' || digest.startsWith('NEXT_REDIRECT;')) throw error
+}
+
 async function HomeProducts({ category }: { category: string }) {
-  const { products } = await getStorePage({ category, perPage: 4 })
+  let result
+  try {
+    result = await getStorePage({ category, perPage: 4 })
+  } catch (error) {
+    rethrowRenderControl(error)
+    console.error('HOME_PRODUCTS_UNAVAILABLE', category)
+    return <div role="status" className="rounded-xl border border-[#45413A] p-5 text-sm leading-6 text-[#D2CEC6]">
+      <p>Não foi possível carregar estas joias agora.</p>
+      <a href="/" className="mt-3 inline-flex min-h-[44px] items-center underline underline-offset-4">Tentar carregar novamente</a>
+    </div>
+  }
+  const { products } = result
   if (!products.length && category === 'after-care') {
     return <Link href="/categoria/after-care" className="inline-flex items-center gap-4 rounded-full bg-[color:var(--home-surface,#F0EBE3)] px-6 py-3.5 text-[12px] text-[color:var(--home-text,#62513A)]">Explorar os essenciais <Arrow /></Link>
   }
@@ -127,7 +145,14 @@ async function HomeProducts({ category }: { category: string }) {
 }
 
 async function HomeColors({ banners }: { banners: SiteBanner[] | null }) {
-  const colors = await getStoneCollections()
+  let colors
+  try {
+    colors = await getStoneCollections()
+  } catch (error) {
+    rethrowRenderControl(error)
+    console.error('HOME_COLORS_UNAVAILABLE')
+    return null
+  }
   const images = homeImageMap(banners, 'stone')
   return <StoneColorCarousel colors={colors.map(({ id, name, color }) => ({ id, name, color, image: images[`/cores/${id}`] }))} />
 }

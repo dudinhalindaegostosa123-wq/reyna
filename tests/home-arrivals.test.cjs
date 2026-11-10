@@ -1,9 +1,10 @@
 const {test}=require('node:test'),assert=require('node:assert/strict'),{load}=require('./helpers/load.cjs'),{nodes}=require('./helpers/render.cjs')
 const jsx={jsx:(type,props)=>({type,props}),jsxs:(type,props)=>({type,props}),Fragment:'fragment'}
-function homeFixture(banners, catalog){
+function homeFixture(banners, catalog, colors){
  const calls=[]
  const mocks={react:{Suspense:'Suspense'},'react/jsx-runtime':jsx,'next/image':{default:'Image'},'next/link':{default:'Link'},'@/lib/titanium-copy':{TITANIUM_INTRO:'Titânio'},'@/lib/store-information':{STORE_INFORMATION:{}},'@/lib/home-images':{bannerPlacement:b=>b.slot,homeImageMap:()=>({})},'@/lib/site-banners':{getSiteBanners:async()=>banners},'@/lib/stone-collections-server':{getStoneCollections:async()=>[]},'@/lib/catalog-server':{getStorePage:async options=>{calls.push(options);return catalog ? catalog(options) : {products:[{id:options.category==='novidades'?'new':'essential',name:'Peça de teste'}]}}}}
  for(const path of ['home/StoneColorCarousel','home/ManagedHero','ui/ProductCard','home/EarMiniBanners','home/CategoryDiscoveryGrid','home/InstagramGrid','home/MaterialsSection'])mocks['@/components/'+path]={default:path}
+ if(colors)mocks['@/lib/stone-collections-server']={getStoneCollections:colors}
  return {page:load('src/app/page.tsx',mocks),calls}
 }
 async function resolve(tree){
@@ -25,6 +26,29 @@ test('hero and section headings render without waiting for product or color quer
  assert.equal(calls.length,0)
  assert.equal(page.dynamic,undefined)
  assert.equal(page.revalidate,60)
+})
+test('failed product and optional color queries do not remove the home or fabricate products',async()=>{
+ const {page}=homeFixture(null,async()=>{throw new Error('DATABASE_UNAVAILABLE')},async()=>{throw new Error('STONE_COLORS_READ')})
+ const tree=await resolve(await page.default())
+ assert.equal(nodes(tree,n=>n.type==='home/ManagedHero').length,1)
+ assert.equal(nodes(tree,n=>n.type==='home/CategoryDiscoveryGrid').length,1)
+ assert.equal(nodes(tree,n=>n.type==='ui/ProductCard').length,0)
+ assert.equal(nodes(tree,n=>n.props.role==='status').length,2)
+ assert.equal(nodes(tree,n=>n.type==='home/StoneColorCarousel').length,0)
+ assert.equal(nodes(tree,n=>n.props['aria-labelledby']==='titanium-title').length,1)
+})
+test('one failed product section does not hide a successful independent section',async()=>{
+ const {page}=homeFixture(null,async({category})=>{if(category==='novidades')throw new Error('TIMEOUT');return {products:[{id:'essential'}]}})
+ const tree=await resolve(await page.default())
+ assert.deepEqual(nodes(tree,n=>n.type==='ui/ProductCard').map(n=>n.props.product.id),['essential'])
+ assert.equal(nodes(tree,n=>n.props.role==='status').length,1)
+})
+test('framework dynamic rendering and redirect exceptions are propagated',async()=>{
+ for(const digest of ['DYNAMIC_SERVER_USAGE','NEXT_REDIRECT;replace;/minha-conta;307;','NEXT_NOT_FOUND']){
+  const error={digest}
+  const {page}=homeFixture(null,async()=>{throw error})
+  await assert.rejects(resolve(await page.default()),value=>value===error)
+ }
 })
 for(const banners of [null,[]])test(`Lunarity hero and numbered home order work with ${JSON.stringify(banners)} banners`,async()=>{
  const {tree,calls}=await renderHome(banners)

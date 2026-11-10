@@ -136,3 +136,13 @@ na Vercel; nenhum valor de chave é mostrado na resposta.
 A validação de desempenho foi local, com dados simulados e atraso artificial
 na API. O acesso ao endereço público da Vercel foi bloqueado pelo proxy deste
 ambiente; os tempos locais não são uma medição do site em produção.
+
+As consultas de produtos e cores também têm tratamento de falha por bloco:
+se uma seção de produtos falhar, mantém a home e mostra um aviso com opção de
+tentar novamente; não publica produtos nem preços fictícios. Se a consulta
+opcional de cores falhar, omite apenas esse carrossel. Sinais de renderização
+dinâmica, redirecionamento e página não encontrada do Next continuam sendo
+propagados. Logs `HOME_PRODUCTS_UNAVAILABLE` e `HOME_COLORS_UNAVAILABLE`
+identificam o bloco afetado sem imprimir credenciais. A causa remota depende
+dos Runtime Logs da Vercel; Build Logs bem-sucedidos não confirmam a saúde das
+consultas quando o site é acessado.
