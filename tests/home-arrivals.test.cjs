@@ -13,6 +13,14 @@ test(`home keeps local hero and category banners when banner query returns ${JSO
  assert.equal(sections[0].type,'home/ManagedHero');assert.equal(sections[1].props['aria-labelledby'],'arrivals-title');assert.equal(sections[2].type,'home/CategoryDiscoveryGrid');assert.equal(sections[3].type,'home/StoneColorCarousel')
  assert.equal(nodes(tree,n=>n.props['aria-labelledby']==='arrivals-title').length,1)
  assert.equal(nodes(tree,n=>n.type==='ui/ProductCard')[0].props.product.id,'new')
+ const blocks=tree.props.children.filter(child=>child && typeof child==='object')
+ const position=predicate=>blocks.findIndex(predicate)
+ assert.ok(position(n=>n.type==='home/MaterialsSection')<position(n=>n.props['aria-labelledby']==='arrivals-title'))
+ assert.ok(position(n=>n.props['aria-label']==='Inspiração Lunarity')>position(n=>n.type==='home/CategoryDiscoveryGrid'))
+ assert.equal(position(n=>n.props['aria-labelledby']==='essentials-title'),position(n=>n.props['aria-label']==='Inspiração Lunarity')+1)
+ assert.ok(position(n=>n.props['aria-labelledby']==='essentials-title')<position(n=>n.type==='home/StoneColorCarousel'))
+ assert.equal(blocks.at(-1).props['aria-labelledby'],'titanium-title')
+
 })
 
 }

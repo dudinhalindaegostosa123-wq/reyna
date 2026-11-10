@@ -40,8 +40,8 @@ export default function CategoryDiscoveryGrid({ items }: { items: DiscoveryBanne
   if (!items.length) return null
   const { featured, more } = arrangeDiscoveryBanners(items)
   return (
-    <section className="lunarity-discovery mx-auto max-w-7xl px-4 py-9 sm:px-6 md:px-10 md:py-14" aria-labelledby="discovery-title">
-      <div className="lunarity-discovery-heading"><div><p className="lunarity-home-eyebrow">UM DETALHE. NOVAS POSSIBILIDADES.</p><h2 id="discovery-title" className="font-display text-2xl font-medium tracking-tight sm:text-3xl md:text-4xl">Qual vai ser sua próxima combinação?</h2></div><Link href="/categoria/todos" className="lunarity-discovery-all">Todas as joias <Arrow /></Link></div>
+    <section className="lunarity-discovery mx-auto max-w-[1600px] px-4 py-9 sm:px-6 md:px-10 md:py-14" aria-labelledby="discovery-title">
+      <div className="lunarity-discovery-heading"><div><p className="lunarity-home-eyebrow">UM DETALHE. NOVAS POSSIBILIDADES.</p><h2 id="discovery-title" className="font-display text-2xl font-medium tracking-tight sm:text-3xl md:text-[40px]">Qual vai ser sua próxima combinação?</h2></div><Link href="/categoria/todos" className="lunarity-discovery-all">Todas as joias <Arrow /></Link></div>
       <div className="lunarity-discovery-grid" data-count={featured.length}>{featured.map((item, index) => <BannerCard key={item.href} item={item} index={index} />)}</div>
       {more.length > 0 && <div className="lunarity-discovery-more">{more.map((item, index) => <BannerCard key={item.href} item={item} index={index + featured.length} compact />)}</div>}
     </section>

@@ -54,3 +54,14 @@ rolagem horizontal. Dados de catálogo foram simulados localmente para esse test
 sem usar credenciais de produção. O build foi exercitado com a API local de teste
 e as mesmas famílias tipográficas servidas de pacotes Fontsource, para não depender
 do acesso ao Google Fonts nesta máquina. A validação do deploy real é separada.
+
+## Ordem dos blocos da home
+
+Após o banner principal, a apresentação “Cada detalhe começa na escolha do
+material” aparece mais acima. O bloco de inspiração Lunarity e o grid de
+Essenciais permanecem juntos no meio da página, após as categorias. A seção
+“Titânio grau implante” fecha o conteúdo da home, imediatamente antes do rodapé.
+
+Os grids de categorias e detalhes para orelha usam largura máxima de 1600 px no
+desktop. Os banners principais têm duas linhas de 300 px e títulos maiores,
+mantendo o empilhamento adaptado para celular.

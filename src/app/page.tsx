@@ -161,6 +161,9 @@ export default async function HomePage() {
         <ManagedHero banner={hero} />
       )}
 
+      {/* Apresentação dos materiais, mais acima na página. */}
+      <MaterialsSection />
+
       {/* Recém-chegados */}
 
       <section
@@ -196,100 +199,6 @@ export default async function HomePage() {
 
       {/* Categorias em uma composição mais compacta, mantendo os banners existentes. */}
       <CategoryDiscoveryGrid items={categoryBanners} />
-
-      {categoryBanners.some(item => /orelha/i.test(item.name)) && <section aria-labelledby="ear-details-title" className="mx-auto max-w-7xl px-4 pb-10 sm:px-6 md:px-10 md:pb-14">
-        <div className="lunarity-ear-heading"><span className="lunarity-home-sparkle" aria-hidden="true">✧</span><h2 id="ear-details-title" className="font-display text-xl sm:text-2xl">Os detalhes fazem a composição.</h2><span className="lunarity-home-rule" aria-hidden="true" /></div>
-        <div className="lunarity-ear-grid"><EarMiniBanners images={homeImageMap(banners,'mini')} /></div>
-      </section>}
-
-      <StoneColorCarousel colors={colors.map(({ id, name, color }) => ({ id, name, color,image:homeImageMap(banners,'stone')[`/cores/${id}`] }))} />
-
-      {/* Benefícios */}
-
-      <section className="border-y border-[color:var(--home-border,#E5E5E5)] bg-[#101010]">
-        <div className="mx-auto grid max-w-7xl grid-cols-2 gap-4 px-4 py-5 text-center md:grid-cols-4">
-          {[
-            {
-              label: 'Joias em titânio',
-              sub: 'Confira a composição de cada peça',
-            },
-            {
-              label: 'Ouro 18K maciço',
-              sub: 'Conheça as opções da coleção',
-            },
-            {
-              label: 'Materiais e acabamentos',
-              sub: 'Detalhes na página de cada joia',
-            },
-            {
-              label: 'Frete grátis',
-              sub: STORE_INFORMATION.retailShipping,
-            },
-          ].map(item => (
-            <div
-              key={item.label}
-              className="py-2"
-            >
-              <p className="text-[12px] font-medium uppercase tracking-[0.1em]">
-                {item.label}
-              </p>
-
-              <p className="mt-0.5 text-[11px] text-[color:var(--home-muted,#6B6B6B)]">
-                {item.sub}
-              </p>
-            </div>
-          ))}
-        </div>
-      </section>
-
-      <div className="lunarity-home-divider mx-auto max-w-7xl px-4 sm:px-6 md:px-10" aria-hidden="true"><span /><span>✦</span><span /></div>
-
-      {/* Titânio grau implante */}
-
-      <section
-        aria-labelledby="titanium-title"
-        className="mx-auto max-w-7xl px-4 pb-8 sm:px-6 md:px-10 md:pb-12 md:pt-2"
-      >
-        <div className="grid items-center gap-5 md:grid-cols-2 md:gap-10">
-          <div className="relative aspect-[5/4] overflow-hidden rounded-[20px] bg-[#EEE8DE] md:rounded-[28px]">
-            <Image
-              src="/banners/titanio.webp"
-              alt="Haste labret e labret esfera de titânio sobre uma superfície metálica"
-              fill
-              sizes="(max-width: 767px) 92vw, 50vw"
-              className="object-cover object-center"
-            />
-          </div>
-
-          <div className="max-w-lg">
-            <p className="mb-2 text-[9px] uppercase tracking-[0.18em] text-[#947B57] md:text-[10px]">
-              Conheça o material
-            </p>
-
-            <h2
-              id="titanium-title"
-              className="font-display text-[24px] font-medium leading-[1.2] tracking-[-0.025em] sm:text-[28px] md:text-4xl"
-            >
-              Titânio grau implante
-            </h2>
-
-            <p className="mt-3 text-[13px] leading-6 text-[color:var(--home-muted,#746D63)] md:text-[14px]">
-              {TITANIUM_INTRO}
-            </p>
-
-            <Link
-              href="/materiais/titanio"
-              className="mt-4 inline-flex min-h-[44px] items-center gap-4 rounded-full bg-[#292621] px-5 py-3 text-[11px] text-white transition-colors hover:bg-[#504638] md:mt-5 md:text-[12px]"
-            >
-              Descubra por que é o melhor
-              <Arrow />
-            </Link>
-          </div>
-        </div>
-      </section>
-
-      {STORE_INFORMATION.instagram && <InstagramGrid />}
-      <MaterialsSection />
 
       <aside className="mx-auto max-w-7xl px-4 pt-2 sm:px-6 md:px-10" aria-label="Inspiração Lunarity"><div className="lunarity-home-note"><div><p className="lunarity-home-eyebrow">LUNARITY · DO SEU JEITO</p><p className="font-display text-xl tracking-tight sm:text-2xl">Uma joia muda o detalhe.<br className="sm:hidden" /> A combinação conta a sua história.</p></div><Link href="/categoria/todos" className="lunarity-discovery-all">Encontrar minha próxima joia <Arrow /></Link><span className="lunarity-home-note-orbit" aria-hidden="true" /></div></aside>
 
@@ -340,6 +249,100 @@ export default async function HomePage() {
             <Arrow />
           </Link>
         )}
+      </section>
+
+      {categoryBanners.some(item => /orelha/i.test(item.name)) && <section aria-labelledby="ear-details-title" className="mx-auto max-w-[1600px] px-4 pb-10 sm:px-6 md:px-10 md:pb-14">
+        <div className="lunarity-ear-heading"><span className="lunarity-home-sparkle" aria-hidden="true">✧</span><h2 id="ear-details-title" className="font-display text-xl sm:text-2xl">Os detalhes fazem a composição.</h2><span className="lunarity-home-rule" aria-hidden="true" /></div>
+        <div className="lunarity-ear-grid"><EarMiniBanners images={homeImageMap(banners,'mini')} /></div>
+      </section>}
+
+      <StoneColorCarousel colors={colors.map(({ id, name, color }) => ({ id, name, color,image:homeImageMap(banners,'stone')[`/cores/${id}`] }))} />
+
+      {/* Benefícios */}
+
+      <section className="border-y border-[color:var(--home-border,#E5E5E5)] bg-[#101010]">
+        <div className="mx-auto grid max-w-7xl grid-cols-2 gap-4 px-4 py-5 text-center md:grid-cols-4">
+          {[
+            {
+              label: 'Joias em titânio',
+              sub: 'Confira a composição de cada peça',
+            },
+            {
+              label: 'Ouro 18K maciço',
+              sub: 'Conheça as opções da coleção',
+            },
+            {
+              label: 'Materiais e acabamentos',
+              sub: 'Detalhes na página de cada joia',
+            },
+            {
+              label: 'Frete grátis',
+              sub: STORE_INFORMATION.retailShipping,
+            },
+          ].map(item => (
+            <div
+              key={item.label}
+              className="py-2"
+            >
+              <p className="text-[12px] font-medium uppercase tracking-[0.1em]">
+                {item.label}
+              </p>
+
+              <p className="mt-0.5 text-[11px] text-[color:var(--home-muted,#6B6B6B)]">
+                {item.sub}
+              </p>
+            </div>
+          ))}
+        </div>
+      </section>
+
+
+      {STORE_INFORMATION.instagram && <InstagramGrid />}
+
+      <div className="lunarity-home-divider mx-auto max-w-7xl px-4 sm:px-6 md:px-10" aria-hidden="true"><span /><span>✦</span><span /></div>
+
+      {/* Titânio grau implante */}
+
+      <section
+        aria-labelledby="titanium-title"
+        className="mx-auto max-w-7xl px-4 pb-8 sm:px-6 md:px-10 md:pb-12 md:pt-2"
+      >
+        <div className="grid items-center gap-5 md:grid-cols-2 md:gap-10">
+          <div className="relative aspect-[5/4] overflow-hidden rounded-[20px] bg-[#EEE8DE] md:rounded-[28px]">
+            <Image
+              src="/banners/titanio.webp"
+              alt="Haste labret e labret esfera de titânio sobre uma superfície metálica"
+              fill
+              sizes="(max-width: 767px) 92vw, 50vw"
+              className="object-cover object-center"
+            />
+          </div>
+
+          <div className="max-w-lg">
+            <p className="mb-2 text-[9px] uppercase tracking-[0.18em] text-[#947B57] md:text-[10px]">
+              Conheça o material
+            </p>
+
+            <h2
+              id="titanium-title"
+              className="font-display text-[24px] font-medium leading-[1.2] tracking-[-0.025em] sm:text-[28px] md:text-4xl"
+            >
+              Titânio grau implante
+            </h2>
+
+            <p className="mt-3 text-[13px] leading-6 text-[color:var(--home-muted,#746D63)] md:text-[14px]">
+              {TITANIUM_INTRO}
+            </p>
+
+            <Link
+              href="/materiais/titanio"
+              className="mt-4 inline-flex min-h-[44px] items-center gap-4 rounded-full bg-[#292621] px-5 py-3 text-[11px] text-white transition-colors hover:bg-[#504638] md:mt-5 md:text-[12px]"
+            >
+              Descubra por que é o melhor
+              <Arrow />
+            </Link>
+          </div>
+        </div>
       </section>
     </div>
   )
