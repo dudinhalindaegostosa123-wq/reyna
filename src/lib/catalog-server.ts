@@ -361,7 +361,7 @@ async function readAll<T>(
   }
 }
 
-const metadata = unstable_cache(
+const metadata = cache(unstable_cache(
   async (): Promise<Row[]> => {
     return readAll<Row>(
       'store_catalog',
@@ -389,7 +389,7 @@ const metadata = unstable_cache(
     revalidate: 60,
     tags: ['catalog'],
   }
-)
+))
 
 function matches(
   row: Row,
@@ -611,6 +611,17 @@ function asProduct(row: Row): Product {
 export async function getStorePage(
   options: Options = {}
 ): Promise<StorePage> {
+  return readStorePage(options, true)
+}
+
+/** Home showcases need cards, not an exact count of the entire catalog. */
+export async function getStorePreview(
+  options: Pick<Options, 'category' | 'perPage' | 'featured'> = {}
+): Promise<Product[]> {
+  return (await readStorePage(options, false)).products
+}
+
+async function readStorePage(options: Options, countExact: boolean): Promise<StorePage> {
   const { rules: pricing } = await readWholesaleAccess()
 
   const size = Math.min(
@@ -765,7 +776,7 @@ export async function getStorePage(
   let result = await read<Row>(
     'store_catalog',
     query,
-    true,
+    countExact,
     pricing
   )
 
@@ -773,7 +784,7 @@ export async function getStorePage(
     result.total / size
   )
 
-  if (totalPages > 0 && page > totalPages) {
+  if (countExact && totalPages > 0 && page > totalPages) {
     page = totalPages
 
     query.set(

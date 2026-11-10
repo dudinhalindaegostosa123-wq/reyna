@@ -8,7 +8,7 @@ import { Suspense } from 'react'
 import { getSiteBanners } from '@/lib/site-banners'
 import { getStoneCollections } from '@/lib/stone-collections-server'
 import StoneColorCarousel from '@/components/home/StoneColorCarousel'
-import { getStorePage } from '@/lib/catalog-server'
+import { getStorePreview } from '@/lib/catalog-server'
 import type { SiteBanner } from '@/lib/banner-ui'
 
 import ManagedHero from '@/components/home/ManagedHero'
@@ -126,7 +126,7 @@ function rethrowRenderControl(error: unknown) {
 async function HomeProducts({ category }: { category: string }) {
   let result
   try {
-    result = await getStorePage({ category, perPage: 4 })
+    result = await getStorePreview({ category, perPage: 4 })
   } catch (error) {
     rethrowRenderControl(error)
     console.error('HOME_PRODUCTS_UNAVAILABLE', category)
@@ -135,7 +135,7 @@ async function HomeProducts({ category }: { category: string }) {
       <a href="/" className="mt-3 inline-flex min-h-[44px] items-center underline underline-offset-4">Tentar carregar novamente</a>
     </div>
   }
-  const { products } = result
+  const products = result
   if (!products.length && category === 'after-care') {
     return <Link href="/categoria/after-care" className="inline-flex items-center gap-4 rounded-full bg-[color:var(--home-surface,#F0EBE3)] px-6 py-3.5 text-[12px] text-[color:var(--home-text,#62513A)]">Explorar os essenciais <Arrow /></Link>
   }

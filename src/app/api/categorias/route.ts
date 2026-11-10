@@ -2,7 +2,8 @@ import { labretCopy } from '@/lib/stem-description'
 import { NextResponse } from 'next/server'
 import { getStoreCategories } from '@/lib/catalog-server'
 
-export const dynamic = 'force-dynamic'
+// This endpoint contains only the public category menu, never customer data.
+export const revalidate = 60
 
 interface CategorySetting {
   slug: string
@@ -40,7 +41,7 @@ export async function GET() {
             Accept: 'application/json',
             Prefer: 'count=exact',
           },
-          cache: 'no-store',
+          next: { revalidate: 60, tags: ['category-settings'] },
         }
       ),
     ])

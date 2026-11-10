@@ -1,12 +1,13 @@
 const {test}=require('node:test'),assert=require('node:assert/strict'),{load}=require('./helpers/load.cjs'),{nodes}=require('./helpers/render.cjs')
 const jsx={jsx:(type,props)=>({type,props}),jsxs:(type,props)=>({type,props}),Fragment:'fragment'}
 test('category menu distinguishes Topo from the Labret landing page even with old display settings',async()=>{
- const {GET}=load('src/app/api/categorias/route.ts',{
+ const {GET,revalidate}=load('src/app/api/categorias/route.ts',{
   '@/lib/stem-description':load('src/lib/stem-description.ts'),
   'next/server':{NextResponse:{json:(body)=>body}},
   '@/lib/catalog-server':{getStoreCategories:async()=>[{slug:'topo',name:'Labret',count:2},{slug:'hastes-e-conectores',name:'Hastes',count:2}]}
- },{SUPABASE_URL:'https://fixture.example',SUPABASE_PUBLISHABLE_KEY:'public'}, {fetch:async()=>new Response(JSON.stringify([{slug:'topo',name:'Labret',hidden_from_menu:false}]),{headers:{'content-range':'0-0/1'}})})
+ },{SUPABASE_URL:'https://fixture.example',SUPABASE_PUBLISHABLE_KEY:'public'}, {fetch:async(_url,options)=>{assert.equal(options.next.revalidate,60);assert.ok(options.next.tags.includes('category-settings'));return new Response(JSON.stringify([{slug:'topo',name:'Labret',hidden_from_menu:false}]),{headers:{'content-range':'0-0/1'}})}})
  const result=await GET()
+ assert.equal(revalidate,60)
  assert.equal(result.categories.find(c=>c.href==='/categoria/topo').name,'Topo')
  assert.equal(result.categories.find(c=>c.href==='/categoria/labret').name,'Labret')
 })

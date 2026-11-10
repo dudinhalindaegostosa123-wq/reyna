@@ -39,6 +39,44 @@ function catalog(wholesale = false) {
   return { api, calls }
 }
 
+test('home previews omit full counts while category pages retain exact totals and private prices', async () => {
+  for (const wholesale of [false, true]) {
+    const {api, calls} = catalog(wholesale)
+    const preview = await api.getStorePreview({category:'novidades', perPage:4})
+    assert.equal(preview.length,4)
+    assert.equal(preview[0].price,wholesale ? 50 : 100)
+    const request=calls.at(-1)
+    assert.equal(request.options.headers.Prefer,undefined)
+    assert.equal(request.parsed.searchParams.get('limit'),'4')
+    if(wholesale){
+      assert.match(request.parsed.pathname,/serenity_wholesale_catalog$/)
+      assert.equal(request.options.cache,'no-store')
+    }else{
+      assert.match(request.parsed.pathname,/store_catalog$/)
+      assert.equal(request.options.next.revalidate,60)
+    }
+    const page=await api.getStorePage({category:'novidades',perPage:4,page:2})
+    assert.equal(page.total,5)
+    assert.equal(page.page,2)
+    assert.equal(page.products.length,1)
+    assert.equal(calls.at(-1).options.headers.Prefer,'count=exact')
+  }
+})
+
+test('public metadata is fetched once per render even when several category blocks request it',async()=>{
+  let requests=0
+  const api=load('src/lib/catalog-server.ts',{
+    ...require('./helpers/commerce.cjs'),
+    react:{cache:fn=>{let promise;return (...args)=>promise ||= fn(...args)}},
+    'next/cache':{unstable_cache:fn=>fn},'./data':{plainText:x=>x},
+    '@/lib/wholesale-server':{readWholesaleAccess:async()=>({rules:null})},
+  },{SUPABASE_URL:'https://fixture.example',SUPABASE_PUBLISHABLE_KEY:'public'}, {fetch:async()=>{requests++;return new Response(JSON.stringify(rows))}})
+  const categories=await Promise.all(['topo','correntes-e-pingentes','correntes','topos-e-correntes'].map(slug=>api.getStoreCategory(slug)))
+  assert.equal(requests,1)
+  assert.equal(categories[0].name,'Topo')
+  assert.equal(categories[1].count,3)
+})
+
 test('Topos includes both categories once and excludes unrelated shafts', async () => {
   const { api, calls } = catalog()
   const category = await api.getStoreCategory('topos-e-correntes')

@@ -146,3 +146,13 @@ propagados. Logs `HOME_PRODUCTS_UNAVAILABLE` e `HOME_COLORS_UNAVAILABLE`
 identificam o bloco afetado sem imprimir credenciais. A causa remota depende
 dos Runtime Logs da Vercel; Build Logs bem-sucedidos não confirmam a saúde das
 consultas quando o site é acessado.
+
+O refinamento seguinte remove a contagem exata do catálogo nas duas vitrines
+de quatro produtos da home. `getStorePreview` segue a mesma seleção, preços,
+galeria e controle de acesso de `getStorePage`; apenas a listagem completa
+continua solicitando totais para paginação. A metadata pública é memorizada por
+renderização com React cache, evitando consultas simultâneas repetidas dos
+blocos de categorias. Esse cache não armazena a sessão nem preços particulares.
+O menu público `/api/categorias` e suas configurações passam a revalidar a cada
+60 segundos e continuam usando as tags `catalog`/`category-settings`, já
+invalidadas pelo editor administrativo. Não é necessário executar SQL novamente.
