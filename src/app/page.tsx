@@ -141,8 +141,8 @@ async function HomeProducts({ category }: { category: string }) {
     </div>
   }
   const products = result
-  if (!products.length && category === 'after-care') {
-    return <Link href="/categoria/after-care" className="inline-flex items-center gap-4 rounded-full bg-[color:var(--home-surface,#F0EBE3)] px-6 py-3.5 text-[12px] text-[color:var(--home-text,#62513A)]">Explorar os essenciais <Arrow /></Link>
+  if (!products.length && category === 'labret') {
+    return <Link href="/categoria/labret" className="inline-flex items-center gap-4 rounded-full bg-[color:var(--home-surface,#F0EBE3)] px-6 py-3.5 text-[12px] text-[color:var(--home-text,#62513A)]">Explorar os labrets <Arrow /></Link>
   }
   return <div className="grid grid-cols-2 gap-x-3 gap-y-6 sm:gap-x-4 md:grid-cols-4 md:gap-6">
     {products.map(product => <ProductCard key={product.id} product={product} />)}
@@ -275,32 +275,31 @@ export default async function HomePage() {
       {/* 5. Materiais — depois do grid de detalhes. */}
       <MaterialsSection />
 
-      {/* 6. Inspiração Lunarity e Essenciais. */}
+      {/* 6. Inspiração Lunarity e Labrets. */}
       <aside className="mx-auto max-w-7xl px-4 pt-2 sm:px-6 md:px-10" aria-label="Inspiração Lunarity"><div className="lunarity-home-note"><div><p className="lunarity-home-eyebrow">LUNARITY · DO SEU JEITO</p><p className="font-display text-xl tracking-tight sm:text-2xl">Uma joia muda o detalhe.<br className="sm:hidden" /> A combinação conta a sua história.</p></div><Link href="/categoria/todos" className="lunarity-discovery-all">Encontrar minha próxima joia <Arrow /></Link><span className="lunarity-home-note-orbit" aria-hidden="true" /></div></aside>
 
-      {/* Essenciais */}
+      {/* Labrets */}
 
       <section
-        aria-labelledby="essentials-title"
+        aria-labelledby="labrets-title"
         className="mx-auto max-w-7xl px-4 py-8 sm:px-6 md:px-10 md:py-12"
       >
         <div className="mb-5 flex flex-wrap items-end justify-between gap-3 md:mb-7">
           <div>
             <h2
-              id="essentials-title"
+              id="labrets-title"
               className="font-display text-[24px] font-medium leading-[1.2] tracking-[-0.025em] sm:text-[28px] md:text-4xl"
             >
-              Essenciais
+              Labrets
             </h2>
 
             <p className="mt-2 max-w-lg text-[12px] leading-6 text-[color:var(--home-muted,#746D63)] md:text-[13px]">
-              Para guardar suas joias e acompanhar sua
-              rotina de cuidados.
+              Detalhes para criar sua composição, do discreto ao marcante.
             </p>
           </div>
 
           <Link
-            href="/categoria/after-care"
+            href="/categoria/labret"
             className="shrink-0 border-b border-[#A59A89] pb-1 text-[10px] uppercase tracking-[0.1em] text-[color:var(--home-muted,#746A5B)] transition-colors hover:text-[color:var(--home-text,#25231F)]"
           >
             Ver todos
@@ -308,7 +307,7 @@ export default async function HomePage() {
         </div>
 
         <Suspense fallback={<ProductPlaceholders />}>
-          <HomeProducts category="after-care" />
+          <HomeProducts category="labret" />
         </Suspense>
       </section>
 

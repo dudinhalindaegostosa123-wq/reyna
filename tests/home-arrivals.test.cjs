@@ -71,11 +71,11 @@ for(const banners of [null,[]])test(`Lunarity hero and numbered home order work 
   n=>n.props['aria-labelledby']==='ear-details-title',
   n=>n.type==='home/MaterialsSection',
   n=>n.props['aria-label']==='Inspiração Lunarity',
-  n=>n.props['aria-labelledby']==='essentials-title',
+  n=>n.props['aria-labelledby']==='labrets-title',
   n=>n.props['aria-labelledby']==='titanium-title',
  ].map(position)
  assert.ok(sequence.every((value,index)=>value>=0 && (index===0 || value>sequence[index-1])))
- assert.equal(position(n=>n.props['aria-labelledby']==='essentials-title'),position(n=>n.props['aria-label']==='Inspiração Lunarity')+1)
+ assert.equal(position(n=>n.props['aria-labelledby']==='labrets-title'),position(n=>n.props['aria-label']==='Inspiração Lunarity')+1)
  assert.equal(blocks.at(-1).props['aria-labelledby'],'titanium-title')
  assert.deepEqual(nodes(tree,n=>n.type==='ui/ProductCard').map(n=>n.props.product.id),['new','essential'])
 })
