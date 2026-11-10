@@ -26,93 +26,39 @@ import {
   ExternalLink,
 } from 'lucide-react'
 
-const links = [
-  {href:'/admin/mais-vendidos',label:'Mais vendidos',icon:ShoppingBag},
-  {
-    href: '/admin/operacao',
-    label: 'Visão geral',
-    icon: LayoutDashboard,
-  },
-  {
-    href: '/admin/pedidos',
-    label: 'Vendas e pedidos',
-    icon: ShoppingBag,
-  },
-  {
-    href: '/admin/pagamentos',
-    label: 'Pagamentos',
-    icon: CreditCard,
-  },
-  {
-    href: '/admin/compras',
-    label: 'Compras do fornecedor',
-    icon: ShoppingCart,
-  },
-  { href: '/admin/historico', label: 'Histórico do site antigo', icon: ShoppingBag },
-  {
-    href: '/admin/checkouts',
-    label: 'Checkouts não concluídos',
-    icon: ShoppingCart,
-  },
-  {
-    href: '/admin/clientes',
-    label: 'Clientes',
-    icon: Users,
-  },
-  {
-    href: '/admin/atacado',
-    label: 'Atacado',
-    icon: Store,
-  },
-  {
-    href: '/admin/produtos',
-    label: 'Produtos',
-    icon: Package,
-  },
-  { href: '/admin/cores', label: 'Cores das pedras', icon: Sparkles },
-  { href: '/admin/projetos', label: 'Projetos auriculares', icon: Sparkles },
-  {
-    href: '/admin/categorias',
-    label: 'Categorias',
-    icon: FolderOpen,
-  },
-  {
-    href: '/admin/qualidade',
-    label: 'Revisão do catálogo',
-    icon: ClipboardCheck,
-  },
-  {
-    href: '/admin/campanhas',
-    label: 'Campanhas',
-    icon: Tag,
-  },
-  {
-    href: '/admin/cupons',
-    label: 'Cupons',
-    icon: Ticket,
-  },
-  {
-    href: '/admin/banners',
-    label: 'Banners',
-    icon: Image,
-  },
-  {
-    href: '/admin/frete',
-    label: 'Envios',
-    icon: Truck,
-  },
-  {
-    href: '/admin/emails',
-    label: 'E-mails',
-    icon: Mail,
-  },
-  { href: '/admin/precos', label: 'Reajuste de preços', icon: ShoppingBag },
-  { href: '/admin/mensuracao', label: 'Mensuração', icon: ShoppingBag },
-  {
-    href: '/admin/configuracoes',
-    label: 'Configurações',
-    icon: Settings,
-  },
+const groups = [
+  { label: 'Dia a dia', links: [
+    { href: '/admin/operacao', label: 'Visão geral', icon: LayoutDashboard },
+    { href: '/admin/pedidos', label: 'Vendas e pedidos', icon: ShoppingBag },
+    { href: '/admin/produtos', label: 'Produtos', icon: Package },
+    { href: '/admin/clientes', label: 'Clientes', icon: Users },
+    { href: '/admin/frete', label: 'Envios', icon: Truck },
+    { href: '/admin/pagamentos', label: 'Pagamentos', icon: CreditCard },
+  ] },
+  { label: 'Catálogo', links: [
+    { href: '/admin/categorias', label: 'Categorias', icon: FolderOpen },
+    { href: '/admin/cores', label: 'Cores das pedras', icon: Sparkles },
+    { href: '/admin/projetos', label: 'Projetos auriculares', icon: Sparkles },
+    { href: '/admin/qualidade', label: 'Revisão do catálogo', icon: ClipboardCheck },
+    { href: '/admin/precos', label: 'Reajuste de preços', icon: Tag },
+    { href: '/admin/compras', label: 'Compras do fornecedor', icon: ShoppingCart },
+  ] },
+  { label: 'Loja e promoções', links: [
+    { href: '/admin/banners', label: 'Banners', icon: Image },
+    { href: '/admin/campanhas', label: 'Campanhas', icon: Tag },
+    { href: '/admin/cupons', label: 'Cupons', icon: Ticket },
+    { href: '/admin/atacado', label: 'Atacado', icon: Store },
+    { href: '/admin/mais-vendidos', label: 'Mais vendidos', icon: ShoppingBag },
+    { href: '/admin/checkouts', label: 'Checkouts não concluídos', icon: ShoppingCart },
+    { href: '/admin/mensuracao', label: 'Mensuração', icon: LayoutDashboard },
+  ] },
+  { label: 'Configurações', links: [
+    { href: '/admin/emails', label: 'E-mails', icon: Mail },
+    { href: '/admin/configuracoes', label: 'Configurações', icon: Settings },
+  ] },
+  { label: 'Histórico', links: [
+    { href: '/admin/historico', label: 'Histórico do site antigo', icon: ShoppingBag },
+  ] },
 ]
 
 export default function AdminNavigation() {
@@ -168,9 +114,11 @@ export default function AdminNavigation() {
       >
         <nav
           aria-label="Administração"
-          className="space-y-2"
+          className="space-y-6"
         >
-          {links.map(({ href, label, icon: Icon }) => {
+          {groups.map(group => <section key={group.label} aria-label={group.label}>
+            <h2 className="mb-2 px-4 text-[10px] font-medium uppercase tracking-[0.16em] text-[#947B57]">{group.label}</h2>
+            <div className="space-y-1">{group.links.map(({ href, label, icon: Icon }) => {
             const active =
               pathname === href ||
               pathname.startsWith(`${href}/`)
@@ -183,7 +131,7 @@ export default function AdminNavigation() {
                 aria-current={
                   active ? 'page' : undefined
                 }
-                className={`flex min-h-[48px] items-center gap-3 rounded-xl px-4 py-3 text-sm transition-colors ${
+                className={`flex min-h-[44px] items-center gap-3 rounded-xl px-4 py-2 text-[13px] transition-colors ${
                   active
                     ? 'bg-[#292621] text-white'
                     : 'text-[#756B5D] hover:bg-[#F1EBE1]'
@@ -198,7 +146,7 @@ export default function AdminNavigation() {
                 <span>{label}</span>
               </Link>
             )
-          })}
+          })}</div></section>)}
         </nav>
 
         <div className="mt-6 border-t border-[#E5DED3] pt-4">

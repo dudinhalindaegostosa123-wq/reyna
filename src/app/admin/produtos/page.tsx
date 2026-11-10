@@ -5,6 +5,7 @@ import { redirect } from 'next/navigation'
 import { adminDatabase } from '@/lib/admin-auth'
 import { logout } from '../actions'
 import type { InventoryRow } from '@/lib/inventory'
+import AdminCatalogSetupNotice from '@/components/admin/AdminCatalogSetupNotice'
 
 interface Props {
   searchParams?: Record<string, string | string[] | undefined>
@@ -45,11 +46,6 @@ export default async function AdminProducts({ searchParams = {} }: Props) {
     Math.max(1, Math.floor(Number(value(searchParams.page)) || 1))
   )
 
-  const safe = search
-    .replace(/[^a-zA-Z0-9À-ÿ -]/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim()
-
   function href(nextPage: number) {
     const query = new URLSearchParams()
     if (search) query.set('q', search)
@@ -60,22 +56,12 @@ export default async function AdminProducts({ searchParams = {} }: Props) {
       (query.toString() ? `?${query}` : '')
   }
 
-  let query = db.from('products').select(
-    'id,woo_id,name,slug,sku,product_type,status,stock_status,regular_price',
-    { count: 'exact' }
-  )
+  const fields = 'id,woo_id,name,slug,sku,product_type,status,stock_status,regular_price'
+  let query = search
+    ? db.rpc('lunarity_admin_search_products', { p_query: search }, { count: 'exact' }).select(fields)
+    : db.from('products').select(fields, { count: 'exact' })
 
   if (status !== 'all') query = query.eq('status', status)
-
-  if (safe) {
-    const numeric = /^\d{1,12}$/.test(safe)
-      ? `,woo_id.eq.${safe}`
-      : ''
-
-    query = query.or(
-      `name.ilike.%${safe}%,sku.ilike.%${safe}%${numeric}`
-    )
-  }
 
   const [result, allCount, publishedCount, draftCount, variantCount] =
     await Promise.all([
@@ -92,6 +78,8 @@ export default async function AdminProducts({ searchParams = {} }: Props) {
   if (result.error?.code === 'PGRST103' && page > 1) {
     redirect(href(1))
   }
+
+  if (result.error?.code === 'PGRST202') return <AdminCatalogSetupNotice />
 
   if (
     [result, allCount, publishedCount, draftCount, variantCount]

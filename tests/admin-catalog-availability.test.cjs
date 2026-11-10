@@ -25,6 +25,7 @@ function catalog(inventoryError, queryError = null) {
     '@/lib/admin-inventory': { getAdminInventory: async () => { if (inventoryError) throw new Error(inventoryError); return new Map() } },
     '@/components/admin/ProductStockBadge': { default: 'StockBadge' },
     '../actions': { logout() {} },
+    '@/components/admin/AdminCatalogSetupNotice': { default: 'SetupNotice' },
   }, { Error })
 }
 
@@ -41,6 +42,29 @@ test('catalog does not suppress permission errors or failed product queries', as
   await assert.rejects(catalog(null, { code: '42501' }).render({}), /ADMIN_CATALOG_QUERY/)
   const tree = await catalog(null).render({})
   assert.equal(nodes(tree, n => n.props.role === 'status').length, 0)
+})
+
+test('an absent search function displays installation guidance',async()=>{
+  const tree=await catalog(null,{code:'PGRST202'}).render({})
+  assert.equal(nodes(tree,n=>n.type==='SetupNotice').length,1)
+})
+
+test('name search uses parameterized terms and preserves status and page filters',async()=>{
+ const calls=[]
+ const chain={select(){return chain},eq(key,value){calls.push(['eq',key,value]);return chain},order(){return chain},range:async(from,to)=>{calls.push(['range',from,to]);return {data:[],count:50,error:null}},then(resolve){return Promise.resolve({count:50,error:null}).then(resolve)}}
+ const view=renderer('src/app/admin/produtos/page.tsx',{
+  'next/link':{default:'Link'},'next/navigation':{redirect(){throw Error('unexpected')}},
+  '@/lib/admin-auth':{adminDatabase:async()=>({db:{from:()=>chain,rpc:(name,args,options)=>{calls.push(['rpc',name,args,options]);return chain}},user:{email:'admin@example.test'}})},
+  '@/lib/admin-inventory':{getAdminInventory:async()=>new Map()},'@/components/admin/ProductStockBadge':{default:'StockBadge'},'../actions':{logout(){}},'@/components/admin/AdminCatalogSetupNotice':{default:'SetupNotice'},
+ })
+ const tree=await view.render({searchParams:{q:'titanio flor',status:'published',page:'2'}})
+ assert.equal(calls[0][1],'lunarity_admin_search_products')
+ assert.equal(calls[0][2].p_query,'titanio flor')
+ assert.equal(calls[0][3].count,'exact')
+ assert.ok(calls.some(c=>c[0]==='eq'&&c[1]==='status'&&c[2]==='published'))
+ assert.ok(calls.some(c=>c[0]==='range'&&c[1]===24&&c[2]===47))
+ const next=nodes(tree,n=>n.type==='Link'&&n.props.href?.includes('page=3'))[0]
+ assert.equal(new URL(next.props.href,'https://fixture.example').searchParams.get('q'),'titanio flor')
 })
 
 test('missing admin secret routes only authorized users to configuration instructions', async () => {

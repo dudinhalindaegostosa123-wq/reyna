@@ -5,6 +5,7 @@ import { getAdminClassification } from '@/lib/admin-classification'
 import { adminDatabase } from '@/lib/admin-auth'
 import type { EditorBundle } from '@/lib/admin-unified'
 import UnifiedProductEditor from './UnifiedProductEditor'
+import AdminCatalogSetupNotice from '@/components/admin/AdminCatalogSetupNotice'
 
 export const dynamic = 'force-dynamic'
 
@@ -46,6 +47,8 @@ export default async function EditProduct({
     }
   )
 
+  if (result.error?.code === 'PGRST202') return <AdminCatalogSetupNotice />
+
   if (result.error) {
     throw new Error('ADMIN_EDITOR_READ')
   }
@@ -60,14 +63,15 @@ export default async function EditProduct({
 
   const options = clientData(rawOptions)
 
-  const inventoryMap = await getAdminInventory(
-    db,
-    [String(bundle.product.id)]
-  )
-
-  const rawInventory = inventoryMap.get(
-    String(bundle.product.id)
-  )
+  let rawInventory
+  let inventoryUnavailable = false
+  try {
+    const inventoryMap = await getAdminInventory(db, [String(bundle.product.id)])
+    rawInventory = inventoryMap.get(String(bundle.product.id))
+  } catch (error) {
+    if (!(error instanceof Error) || error.message !== 'ADMIN_INVENTORY_NOT_INSTALLED') throw error
+    inventoryUnavailable = true
+  }
 
   const inventory =
     rawInventory == null
@@ -105,6 +109,8 @@ export default async function EditProduct({
           Todas as alterações foram salvas.
         </p>
       )}
+
+      {inventoryUnavailable && <p role="status" className="mb-5 rounded-2xl border border-[#E5DED3] bg-white p-4 text-sm leading-6 text-[#625B51]">O resumo de reservas de estoque ainda não está instalado. Os campos do produto continuam disponíveis para edição.</p>}
 
       <UnifiedProductEditor
         key={bundle.version}
