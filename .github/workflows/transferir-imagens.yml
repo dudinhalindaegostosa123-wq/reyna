@@ -29,6 +29,7 @@ jobs:
         shell: bash
         run: |
           python3 -u - <<'PY'
+          from scripts.supabase_workflow_config import load_config, request_headers
           import csv
           import hashlib
           import html
@@ -54,24 +55,11 @@ jobs:
           Image.MAX_IMAGE_PIXELS = 40_000_000
           warnings.simplefilter("error", Image.DecompressionBombWarning)
 
-          BASE = os.environ["SUPABASE_URL"].strip().rstrip("/")
-          KEY = os.environ["SUPABASE_SECRET_KEY"].strip()
+          BASE, KEY = load_config(os.environ)
           BUCKET = "produtos"
           ROOT = "migracao-v1"
           MANIFEST_PATH = ROOT + "/manifesto.json"
           LIMIT = 900_000_000
-
-          parsed_base = urlsplit(BASE)
-          if (
-              parsed_base.scheme != "https"
-              or not (parsed_base.hostname or "").endswith(".supabase.co")
-              or parsed_base.path
-              or parsed_base.query
-              or parsed_base.fragment
-              or parsed_base.username
-              or not KEY.startswith("sb_secret_")
-          ):
-              raise SystemExit("Confira os Secrets do Supabase.")
 
           class ServiceError(RuntimeError):
               pass
@@ -81,7 +69,7 @@ jobs:
               raw=None, mime="application/json",
               extra=None, missing=False,
           ):
-              headers = {"apikey": KEY, "Accept": "application/json"}
+              headers = {**request_headers(KEY), "Accept": "application/json"}
               headers.update(extra or {})
               body = raw
 

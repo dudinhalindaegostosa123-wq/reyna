@@ -26,6 +26,7 @@ jobs:
         shell: bash
         run: |
           python3 - <<'PY'
+          from scripts.supabase_workflow_config import load_config, request_headers
           import csv
           import json
           import math
@@ -39,15 +40,11 @@ jobs:
 
           csv.field_size_limit(20_000_000)
 
-          URL = os.environ["SUPABASE_URL"].strip().rstrip("/")
-          KEY = os.environ["SUPABASE_SECRET_KEY"].strip()
-
-          if not KEY.startswith("sb_secret_"):
-              raise SystemExit("Confira o Secret SUPABASE_SECRET_KEY.")
+          URL, KEY = load_config(os.environ)
 
           def api(path, payload=None, prefer=None):
               headers = {
-                  "apikey": KEY,
+                  **request_headers(KEY),
                   "Accept": "application/json",
               }
 
