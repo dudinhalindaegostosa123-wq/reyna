@@ -24,43 +24,43 @@ const REGIONS: EarCategory[] = [
   {
     name: 'Conch',
     term: 'conch',
-    image: '/banners/conch.webp',
+    image: '/banners/lunarity-orelha/conch.webp',
     aliases: ['conch', 'concha', 'orelha-conch'],
   },
   {
     name: 'Daith',
     term: 'daith',
-    image: '/banners/daith.webp',
+    image: '/banners/lunarity-orelha/daith.webp',
     aliases: ['daith', 'orelha-daith'],
   },
   {
     name: 'Flat',
     term: 'flat',
-    image: '/banners/flat.webp',
+    image: '/banners/lunarity-orelha/flat.webp',
     aliases: ['flat', 'orelha-flat'],
   },
   {
     name: 'Hélix',
     term: 'helix',
-    image: '/banners/helix.webp',
+    image: '/banners/lunarity-orelha/helix.webp',
     aliases: ['helix', 'orelha-helix'],
   },
   {
     name: 'Lóbulo',
     term: 'lobulo',
-    image: '/banners/lobulo.webp',
+    image: '/banners/lunarity-orelha/lobulo.webp',
     aliases: ['lobulo', 'lobulos', 'orelha-lobulo'],
   },
   {
     name: 'Tragus',
     term: 'tragus',
-    image: '/banners/tragus.webp',
+    image: '/banners/lunarity-orelha/tragus.webp',
     aliases: ['tragus', 'orelha-tragus'],
   },
   {
     name: 'Transversal',
     term: 'transversal',
-    image: '/banners/transversal.webp',
+    image: '/banners/lunarity-orelha/transversal.webp',
     aliases: [
       'transversal',
       'industrial',
@@ -70,7 +70,7 @@ const REGIONS: EarCategory[] = [
   {
     name: 'Brincos',
     term: 'brincos',
-    image: '/banners/brincos-categoria.png',
+    image: '/banners/lunarity-orelha/brincos.webp',
     aliases: [
       'brincos',
       'brinco',
@@ -83,15 +83,15 @@ const REGIONS: EarCategory[] = [
 
 const PROJECT_IMAGES = [
   {
-    image: '/banners/projeto-verde.webp',
+    image: '/banners/lunarity-orelha/projeto-verde.webp',
     position: 'md:translate-y-4',
   },
   {
-    image: '/banners/projeto-dourado.webp',
+    image: '/banners/lunarity-orelha/projeto-dourado.webp',
     position: 'md:-translate-y-4',
   },
   {
-    image: '/banners/projeto-azul.webp',
+    image: '/banners/lunarity-orelha/projeto-azul.webp',
     position: 'md:translate-y-4',
   },
 ]

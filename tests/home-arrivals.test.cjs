@@ -55,7 +55,7 @@ for(const banners of [null,[]])test(`Lunarity hero and numbered home order work 
  assert.equal(calls[0].category,'novidades')
  const hero=nodes(tree,n=>n.type==='home/ManagedHero')[0].props.banner
  assert.equal(hero.image_desktop,'/banners/lunarity-hero.webp')
- assert.equal(hero.image_mobile,'/banners/lunarity-hero-mobile.webp')
+ assert.equal(hero.image_mobile,'/banners/lunarity-hero-portrait.webp')
  assert.equal(hero.href,'/categoria/todos')
  assert.equal(hero.title,'Cada fase, um novo brilho.')
  assert.ok(!/swarovski/i.test(JSON.stringify(hero)))

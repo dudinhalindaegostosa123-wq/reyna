@@ -31,7 +31,7 @@ const FALLBACK_HERO: SiteBanner = {
   cta: 'Encontre sua joia',
   alt: 'Composição ilustrativa de joias prateadas sobre pedra escura',
   image_desktop: '/banners/lunarity-hero.webp',
-  image_mobile: '/banners/lunarity-hero-mobile.webp',
+  image_mobile: '/banners/lunarity-hero-portrait.webp',
   text_tone: 'light',
   position: 0,
 }
