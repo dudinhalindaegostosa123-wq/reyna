@@ -60,6 +60,7 @@ for(const banners of [null,[]])test(`Lunarity hero and numbered home order work 
  assert.equal(hero.title,'Cada fase, um novo brilho.')
  assert.ok(!/swarovski/i.test(JSON.stringify(hero)))
  assert.equal(nodes(tree,n=>n.type==='home/CategoryDiscoveryGrid')[0].props.items.length,8)
+ assert.ok(nodes(tree,n=>n.type==='home/CategoryDiscoveryGrid')[0].props.items.every(item=>item.image.startsWith('/banners/lunarity-categorias/')&&item.mobileImage.includes('-mobile.webp')))
  const blocks=tree.props.children.filter(child=>child && typeof child==='object')
  const position=predicate=>blocks.findIndex(predicate)
  const sequence=[
@@ -89,6 +90,16 @@ test('inherited Swarovski campaigns are replaced while a deliberate custom campa
 test('a categories-only configuration still has a hero and avoids the header covering the next section',async()=>{
  const {tree}=await renderHome([{id:'category',slot:'category',title:'Orelha',subtitle:'Joias',href:'/orelha',image_desktop:'/orelha.webp'}])
  assert.equal(nodes(tree,n=>n.type==='home/ManagedHero').length,1)
+})
+test('legacy local category pictures use the dark collection while uploaded pictures remain configurable',async()=>{
+ const {tree}=await renderHome([
+  {id:'ear',slot:'category',title:'Orelha',subtitle:'Joias',href:'/orelha',image_desktop:'/banners/orelha.webp',image_mobile:'/banners/orelha-mobile.webp'},
+  {id:'nose',slot:'category',title:'Nariz',subtitle:'Joias',href:'/nariz',image_desktop:'https://fixture.supabase.co/storage/custom.webp',image_mobile:'https://fixture.supabase.co/storage/custom-mobile.webp'},
+ ])
+ const items=nodes(tree,n=>n.type==='home/CategoryDiscoveryGrid')[0].props.items
+ assert.equal(items[0].image,'/banners/lunarity-categorias/orelha-desktop.webp')
+ assert.equal(items[0].mobileImage,'/banners/lunarity-categorias/orelha-mobile.webp')
+ assert.equal(items[1].image,'https://fixture.supabase.co/storage/custom.webp')
 })
 test('footer omits social, email and physical-store links when Lunarity contacts are unset',()=>{
  const {default:Footer}=load('src/components/layout/Footer.tsx',{

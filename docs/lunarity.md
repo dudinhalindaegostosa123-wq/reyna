@@ -156,3 +156,22 @@ blocos de categorias. Esse cache não armazena a sessão nem preços particulare
 O menu público `/api/categorias` e suas configurações passam a revalidar a cada
 60 segundos e continuam usando as tags `catalog`/`category-settings`, já
 invalidadas pelo editor administrativo. Não é necessário executar SQL novamente.
+
+## Artes pretas das categorias
+
+Os oito banners de categorias foram criados novamente seguindo a direção do
+hero: fundo preto, pedra vulcânica escura, joias prateadas e luz de estúdio.
+As artes são diferentes para Orelha, Nariz, Umbigo, Boca, Sobrancelha,
+Microdermal, Mamilo e Íntimos; não contêm texto, números ou estrelas decorativas.
+Os nomes e links continuam sendo HTML acessível nos cartões.
+
+Os arquivos otimizados da home ficam em `public/banners/lunarity-categorias`.
+Os antigos arquivos locais usados na home passam a apontar para essa coleção.
+Imagens personalizadas enviadas pelo painel continuam configuráveis; os arquivos
+antigos foram preservados para outros usos e páginas.
+
+`public/downloads/banners-pretos-lunarity.zip` reúne 16 arquivos exportados nas
+medidas dos cartões: 8 para computador e 8 para celular. As versões do site têm
+resolução maior para exibição nítida; o ZIP inclui as medidas no nome de cada
+arquivo e um manifesto. A referência é a grade máxima de 1520 px no computador
+e uma tela de 390 px no celular. O layout continua responsivo.

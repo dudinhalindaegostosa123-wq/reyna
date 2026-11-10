@@ -41,59 +41,64 @@ const CATEGORY_BANNERS = [
     name: 'Orelha',
     subtitle: 'Explore cada região e encontre sua composição.',
     href: '/orelha',
-    image: '/banners/orelha.webp',
-    mobileImage: '/banners/orelha-mobile.webp',
+    image: '/banners/lunarity-categorias/orelha-desktop.webp',
+    mobileImage: '/banners/lunarity-categorias/orelha-mobile.webp',
   },
   {
     name: 'Nariz',
     subtitle: 'Um detalhe que faz parte de você.',
     href: '/nariz',
-    image: '/banners/nariz.webp',
-    mobileImage: '/banners/nariz-mobile.webp',
+    image: '/banners/lunarity-categorias/nariz-desktop.webp',
+    mobileImage: '/banners/lunarity-categorias/nariz-mobile.webp',
   },
   {
     name: 'Boca',
     subtitle: 'Descubra novas possibilidades para sua expressão.',
     href: '/boca',
-    image: '/banners/boca.webp',
-    mobileImage: '/banners/boca-mobile.webp',
+    image: '/banners/lunarity-categorias/boca-desktop.webp',
+    mobileImage: '/banners/lunarity-categorias/boca-mobile.webp',
   },
   {
     name: 'Umbigo',
     subtitle: 'Joias para acompanhar seu movimento.',
     href: '/categoria/umbigo',
-    image: '/banners/umbigo.webp',
-    mobileImage: '/banners/umbigo-mobile.webp',
+    image: '/banners/lunarity-categorias/umbigo-desktop.webp',
+    mobileImage: '/banners/lunarity-categorias/umbigo-mobile.webp',
   },
   {
     name: 'Sobrancelha',
     subtitle: 'Um ponto de destaque no seu olhar.',
     href: '/categoria/sobrancelha',
-    image: '/banners/sobrancelha.webp',
-    mobileImage: '/banners/sobrancelha-mobile.webp',
+    image: '/banners/lunarity-categorias/sobrancelha-desktop.webp',
+    mobileImage: '/banners/lunarity-categorias/sobrancelha-mobile.webp',
   },
   {
     name: 'Microdermal',
     subtitle: 'Explore os detalhes desta seleção.',
     href: '/categoria/microdermal',
-    image: '/banners/microdermal.webp',
-    mobileImage: '/banners/microdermal-mobile.webp',
+    image: '/banners/lunarity-categorias/microdermal-desktop.webp',
+    mobileImage: '/banners/lunarity-categorias/microdermal-mobile.webp',
   },
   {
     name: 'Mamilo',
     subtitle: 'Detalhes escolhidos por você.',
     href: '/categoria/mamilo',
-    image: '/banners/mamilo.webp',
-    mobileImage: '/banners/mamilo-mobile.webp',
+    image: '/banners/lunarity-categorias/mamilo-desktop.webp',
+    mobileImage: '/banners/lunarity-categorias/mamilo-mobile.webp',
   },
   {
     name: 'Íntimos',
     subtitle: 'Explore as peças desta seleção.',
     href: '/intimos',
-    image: '/banners/intimos.webp',
-    mobileImage: '/banners/intimos-mobile.webp',
+    image: '/banners/lunarity-categorias/intimos-desktop.webp',
+    mobileImage: '/banners/lunarity-categorias/intimos-mobile.webp',
   },
 ]
+
+function categoryBannerImage(path: string, mobile = false) {
+  const legacy = path.match(/^\/banners\/(orelha|nariz|umbigo|boca|sobrancelha|microdermal|mamilo|intimos)(?:-mobile)?\.webp$/)
+  return legacy ? `/banners/lunarity-categorias/${legacy[1]}-${mobile ? 'mobile' : 'desktop'}.webp` : path
+}
 
 function Arrow() {
   return (
@@ -176,10 +181,8 @@ export default async function HomePage() {
           name: banner.title,
           subtitle: banner.subtitle,
           href: banner.href,
-          image: banner.image_desktop,
-          mobileImage:
-            banner.image_mobile ||
-            banner.image_desktop,
+          image: categoryBannerImage(banner.image_desktop),
+          mobileImage: categoryBannerImage(banner.image_mobile || banner.image_desktop, true),
           textTone: banner.text_tone,
           alt: banner.alt,
         }))).filter(banner => ![
