@@ -6,6 +6,7 @@ import { randomUUID } from 'node:crypto'
 import sharp from 'sharp'
 import { revalidatePath, revalidateTag } from 'next/cache'
 import { adminDatabase } from '@/lib/admin-auth'
+import { uploadBannerImage, BANNER_STORAGE_ERROR } from '@/lib/banner-storage'
 
 const uuid = (value: string) =>
   /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i.test(
@@ -207,19 +208,7 @@ export async function saveBanner(
 
       const path = `${id}/${randomUUID()}.webp`
 
-      const result = await db.storage
-        .from('serenity-banners')
-        .upload(path, bytes, {
-          contentType: 'image/webp',
-          upsert: false,
-          cacheControl: '31536000',
-        })
-
-      if (result.error) {
-        throw new Error(
-          'Falha ao enviar a imagem. Confira a configuração do bucket serenity-banners.'
-        )
-      }
+      await uploadBannerImage(db, path, bytes)
 
       return path
     }
@@ -310,7 +299,7 @@ export async function saveBanner(
     const allowedMessages = [
       'Cada imagem deve ter até 3 MB.',
       'Use imagem estática JPG, PNG ou WebP.',
-      'Falha ao enviar a imagem. Confira a configuração do bucket serenity-banners.',
+      BANNER_STORAGE_ERROR,
     ]
 
     return {

@@ -115,3 +115,24 @@ A lista de produtos continua disponível se apenas a visão
 não inventa valores de estoque. Falhas de permissão, conexão e consulta de
 produtos continuam sendo tratadas como erros; o editor de produtos mantém sua
 exigência da visão de estoque.
+
+## Carregamento e envio de banners
+
+A home usa Suspense para carregar produtos e cores separadamente. O banner,
+títulos e demais blocos visuais não aguardam a classificação de todo o catálogo.
+Os espaços reservados dos produtos mantêm o grid enquanto as consultas terminam.
+Consultas públicas mantêm cache de 60 segundos e invalidação por tags; a leitura
+da sessão continua por requisição, e preços de atacado continuam sem cache público.
+A leitura de banners tem prazo de 2,5 segundos, com o banner local como fallback.
+As definições e curadorias públicas de cores usam o mesmo cache de catálogo.
+
+O envio administrativo tenta gravar normalmente. Se falhar e a consulta de
+Storage confirmar que `serenity-banners` não existe, cria esse bucket público
+somente para WebP (até 3 MB) e tenta novamente uma vez. Isso ocorre somente após
+validar o administrador. Buckets existentes e políticas de escrita não são
+alterados. Falhas de permissão continuam exigindo a chave administrativa correta
+na Vercel; nenhum valor de chave é mostrado na resposta.
+
+A validação de desempenho foi local, com dados simulados e atraso artificial
+na API. O acesso ao endereço público da Vercel foi bloqueado pelo proxy deste
+ambiente; os tempos locais não são uma medição do site em produção.

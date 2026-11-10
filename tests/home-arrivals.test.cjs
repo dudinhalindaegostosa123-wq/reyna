@@ -1,11 +1,31 @@
 const {test}=require('node:test'),assert=require('node:assert/strict'),{load}=require('./helpers/load.cjs'),{nodes}=require('./helpers/render.cjs')
 const jsx={jsx:(type,props)=>({type,props}),jsxs:(type,props)=>({type,props}),Fragment:'fragment'}
-async function renderHome(banners){
+function homeFixture(banners, catalog){
  const calls=[]
- const mocks={'react/jsx-runtime':jsx,'next/image':{default:'Image'},'next/link':{default:'Link'},'@/lib/titanium-copy':{TITANIUM_INTRO:'Titânio'},'@/lib/store-information':{STORE_INFORMATION:{}},'@/lib/home-images':{bannerPlacement:b=>b.slot,homeImageMap:()=>({})},'@/lib/site-banners':{getSiteBanners:async()=>banners},'@/lib/stone-collections-server':{getStoneCollections:async()=>[]},'@/lib/catalog-server':{getStorePage:async options=>{calls.push(options);return {products:[{id:options.category==='novidades'?'new':'essential',name:'Peça de teste'}]}}}}
+ const mocks={react:{Suspense:'Suspense'},'react/jsx-runtime':jsx,'next/image':{default:'Image'},'next/link':{default:'Link'},'@/lib/titanium-copy':{TITANIUM_INTRO:'Titânio'},'@/lib/store-information':{STORE_INFORMATION:{}},'@/lib/home-images':{bannerPlacement:b=>b.slot,homeImageMap:()=>({})},'@/lib/site-banners':{getSiteBanners:async()=>banners},'@/lib/stone-collections-server':{getStoneCollections:async()=>[]},'@/lib/catalog-server':{getStorePage:async options=>{calls.push(options);return catalog ? catalog(options) : {products:[{id:options.category==='novidades'?'new':'essential',name:'Peça de teste'}]}}}}
  for(const path of ['home/StoneColorCarousel','home/ManagedHero','ui/ProductCard','home/EarMiniBanners','home/CategoryDiscoveryGrid','home/InstagramGrid','home/MaterialsSection'])mocks['@/components/'+path]={default:path}
- return {tree:await load('src/app/page.tsx',mocks).default(),calls}
+ return {page:load('src/app/page.tsx',mocks),calls}
 }
+async function resolve(tree){
+ if(Array.isArray(tree))return Promise.all(tree.map(resolve))
+ if(!tree || typeof tree!=='object')return tree
+ if(typeof tree.type==='function')return resolve(await tree.type(tree.props))
+ if(tree.type==='Suspense')return resolve(tree.props.children)
+ return {...tree,props:{...tree.props,children:await resolve(tree.props.children)}}
+}
+async function renderHome(banners){
+ const {page,calls}=homeFixture(banners)
+ return {tree:await resolve(await page.default()),calls}
+}
+test('hero and section headings render without waiting for product or color queries',async()=>{
+ const {page,calls}=homeFixture(null,()=>new Promise(()=>{}))
+ const shell=await page.default()
+ assert.equal(nodes(shell,n=>n.type==='home/ManagedHero').length,1)
+ assert.equal(nodes(shell,n=>n.type==='Suspense').length,3)
+ assert.equal(calls.length,0)
+ assert.equal(page.dynamic,undefined)
+ assert.equal(page.revalidate,60)
+})
 for(const banners of [null,[]])test(`Lunarity hero and numbered home order work with ${JSON.stringify(banners)} banners`,async()=>{
  const {tree,calls}=await renderHome(banners)
  assert.equal(calls[0].category,'novidades')

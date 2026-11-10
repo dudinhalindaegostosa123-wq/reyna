@@ -3,6 +3,7 @@ import { STORE_INFORMATION } from '@/lib/store-information'
 import { bannerPlacement,homeImageMap } from '@/lib/home-images'
 import Image from 'next/image'
 import Link from 'next/link'
+import { Suspense } from 'react'
 
 import { getSiteBanners } from '@/lib/site-banners'
 import { getStoneCollections } from '@/lib/stone-collections-server'
@@ -17,7 +18,8 @@ import CategoryDiscoveryGrid from '@/components/home/CategoryDiscoveryGrid'
 import InstagramGrid from '@/components/home/InstagramGrid'
 import MaterialsSection from '@/components/home/MaterialsSection'
 
-export const dynamic = 'force-dynamic'
+// Public fetches keep their tagged cache; customer access still makes rendering dynamic.
+export const revalidate = 60
 export const maxDuration = 60
 
 const FALLBACK_HERO: SiteBanner = {
@@ -108,26 +110,30 @@ function Arrow() {
   )
 }
 
+function ProductPlaceholders() {
+  return <div aria-label="Carregando joias" role="status" className="grid grid-cols-2 gap-3 md:grid-cols-4 md:gap-6">
+    {[0, 1, 2, 3].map(id => <div key={id} aria-hidden="true"><div className="aspect-square rounded-sm bg-[#111111]" /><div className="mt-3 h-4 w-3/4 bg-[#111111]" /><div className="mt-2 h-4 w-1/3 bg-[#111111]" /></div>)}
+  </div>
+}
+
+async function HomeProducts({ category }: { category: string }) {
+  const { products } = await getStorePage({ category, perPage: 4 })
+  if (!products.length && category === 'after-care') {
+    return <Link href="/categoria/after-care" className="inline-flex items-center gap-4 rounded-full bg-[color:var(--home-surface,#F0EBE3)] px-6 py-3.5 text-[12px] text-[color:var(--home-text,#62513A)]">Explorar os essenciais <Arrow /></Link>
+  }
+  return <div className="grid grid-cols-2 gap-x-3 gap-y-6 sm:gap-x-4 md:grid-cols-4 md:gap-6">
+    {products.map(product => <ProductCard key={product.id} product={product} />)}
+  </div>
+}
+
+async function HomeColors({ banners }: { banners: SiteBanner[] | null }) {
+  const colors = await getStoneCollections()
+  const images = homeImageMap(banners, 'stone')
+  return <StoneColorCarousel colors={colors.map(({ id, name, color }) => ({ id, name, color, image: images[`/cores/${id}`] }))} />
+}
+
 export default async function HomePage() {
-  const [
-    arrivals,
-    essentials,
-    banners,
-    colors,
-  ] = await Promise.all([
-    getStorePage({
-      category: 'novidades',
-      perPage: 4,
-    }),
-
-    getStorePage({
-      category: 'after-care',
-      perPage: 4,
-    }),
-
-    getSiteBanners(),
-    getStoneCollections(),
-  ])
+  const banners = await getSiteBanners()
 
   const useDefaultBanners = banners === null || banners.length === 0
 
@@ -185,14 +191,9 @@ export default async function HomePage() {
           </Link>
         </div>
 
-        <div className="grid grid-cols-2 gap-x-3 gap-y-6 sm:gap-x-4 md:grid-cols-4 md:gap-6">
-          {arrivals.products.map(product => (
-            <ProductCard
-              key={product.id}
-              product={product}
-            />
-          ))}
-        </div>
+        <Suspense fallback={<ProductPlaceholders />}>
+          <HomeProducts category="novidades" />
+        </Suspense>
       </section>
 
 
@@ -239,27 +240,14 @@ export default async function HomePage() {
           </Link>
         </div>
 
-        {essentials.products.length ? (
-          <div className="grid grid-cols-2 gap-x-3 gap-y-6 sm:gap-x-4 md:grid-cols-4 md:gap-6">
-            {essentials.products.map(product => (
-              <ProductCard
-                key={product.id}
-                product={product}
-              />
-            ))}
-          </div>
-        ) : (
-          <Link
-            href="/categoria/after-care"
-            className="inline-flex items-center gap-4 rounded-full bg-[color:var(--home-surface,#F0EBE3)] px-6 py-3.5 text-[12px] text-[color:var(--home-text,#62513A)]"
-          >
-            Explorar os essenciais
-            <Arrow />
-          </Link>
-        )}
+        <Suspense fallback={<ProductPlaceholders />}>
+          <HomeProducts category="after-care" />
+        </Suspense>
       </section>
 
-      <StoneColorCarousel colors={colors.map(({ id, name, color }) => ({ id, name, color,image:homeImageMap(banners,'stone')[`/cores/${id}`] }))} />
+      <Suspense fallback={null}>
+        <HomeColors banners={banners} />
+      </Suspense>
 
       {/* Benefícios */}
 

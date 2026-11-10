@@ -25,6 +25,7 @@ export async function getSiteBanners():
       `${base}/rest/v1/serenity_public_banners` +
       '?select=*&order=position.asc,id.asc',
       {
+        signal: AbortSignal.timeout(2500),
         headers: {
           apikey: key,
         },
