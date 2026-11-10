@@ -27,7 +27,7 @@ export default function SiteChrome({ children }: { children: React.ReactNode }) 
           <div className="mx-auto flex max-w-6xl items-center justify-between gap-4">
             <a href="/" className="inline-flex min-h-[44px] items-center text-sm tracking-[0.3em]" aria-label="Lunarity — voltar à loja">LUNARITY</a>
             <div className="flex items-center gap-2 sm:gap-4">
-              <p className="hidden text-right text-[11px] leading-5 text-store-muted sm:block">Pagamento via Mercado Pago<br /><span className="text-store-text">Pix e cartão de crédito</span></p>
+              <p className="hidden text-right text-[11px] leading-5 text-store-muted sm:block">Finalização do pedido<br /><span className="text-store-text">Confira os dados da sua compra</span></p>
               <Link href="/minha-conta" aria-label="Minha conta" title="Minha conta" className="inline-flex min-h-[44px] min-w-[44px] items-center justify-center rounded-full transition-colors hover:bg-store-raised focus-visible:outline focus-visible:outline-2 focus-visible:outline-current">
                 <UserRound size={20} strokeWidth={1.5} aria-hidden="true" />
               </Link>

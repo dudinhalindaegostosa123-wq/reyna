@@ -35,7 +35,7 @@ async function fixture(){
    assert.equal(options.secure,true);assert.equal(options.tls.minVersion,'TLSv1.2')
    return {async sendMail(message){messages.push(message);if(smtpError)throw smtpError;return {accepted:[message.to]}}}
   }}},'./email-template':{}
- },{VERCEL_ENV:'production',SERENITY_EMAIL_ENABLED:'true',SMTP_USER:'contato@serenitypiercings.com.br',SMTP_PASSWORD:'simulated-test-password'})
+ },{VERCEL_ENV:'production',SERENITY_EMAIL_ENABLED:'true',SMTP_USER:'smtp@example.test',SMTP_FROM_EMAIL:'loja@example.test',SMTP_PASSWORD:'simulated-test-password'})
  const action=load('src/app/avisos/estoque/actions.ts',{
   'next/headers':{headers:()=>new Headers({'x-forwarded-for':'203.0.113.1'})},'node:crypto':{createHmac},
   '@/lib/payment-processing-server':{paymentDatabase:()=>rpc},'@/lib/order-email-server':emails,
@@ -65,7 +65,7 @@ test('integration: real signup, SQL queue, variation restock, template and SMTP 
   const delivered=await f.drain();assert.equal(delivered.sent,1);assert.equal(delivered.failed,0)
   assert.equal(f.messages.length,1)
   const message=f.messages[0]
-  assert.equal(message.to,'cliente-teste@example.com');assert.equal(message.from.address,'contato@serenitypiercings.com.br')
+  assert.equal(message.to,'cliente-teste@example.com');assert.equal(message.from.address,'loja@example.test')
   assert.match(message.text,/Flor de teste — Azul/);assert.match(message.text,/produto\/flor-teste\?variacao=101/)
   assert.equal((await f.db.query('select state from serenity_restock_subscriptions_v1')).rows[0].state,'sent')
   assert.equal((await f.drain()).sent,0);assert.equal(f.messages.length,1)

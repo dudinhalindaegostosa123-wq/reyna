@@ -489,6 +489,7 @@ export async function getStoreCategory(
     todos: 'Todas as joias',
     novidades: 'Novidades',
     destaques: 'Destaques',
+    'after-care': 'Essenciais',
   }
 
   const name =

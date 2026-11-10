@@ -76,6 +76,15 @@ test('public metadata is fetched once per render even when several category bloc
   assert.equal(categories[0].name,'Topo')
   assert.equal(categories[1].count,3)
 })
+test('the home Essentials link opens an empty category when no after-care products are published',async()=>{
+ const {api}=catalog()
+ const category=await api.getStoreCategory('after-care')
+ assert.equal(category.name,'Essenciais')
+ assert.equal(category.count,0)
+ const page=await api.getStorePage({category:'after-care'})
+ assert.equal(page.products.length,0)
+ assert.equal(page.total,0)
+})
 
 test('Topos includes both categories once and excludes unrelated shafts', async () => {
   const { api, calls } = catalog()
