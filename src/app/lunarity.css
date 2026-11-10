@@ -5,3 +5,54 @@
 
 @media(max-width:767px){.lunarity-brand-name{font-size:19px}.lunarity-brand-mark{width:30px;height:30px}.lunarity-brand-caption{font-size:7px}}
 @media(max-width:374px){.storefront-theme header .lunarity-brand-mark{display:none}.storefront-theme header .lunarity-brand-name{font-size:16px;letter-spacing:.14em}.storefront-theme header .lunarity-brand-caption{font-size:6px}}
+
+/* Small additions to the original dark home: banner grids and fine ornament. */
+.lunarity-home-eyebrow{font-size:9px;line-height:1.8;letter-spacing:.18em;color:#bca482;margin-bottom:10px}
+.lunarity-discovery-heading{display:flex;align-items:flex-end;justify-content:space-between;gap:24px;margin-bottom:25px}
+.lunarity-discovery-heading h2{max-width:620px;line-height:1.2}
+.lunarity-discovery-all{display:inline-flex;align-items:center;gap:18px;flex-shrink:0;min-height:44px;font-size:11px;border-bottom:1px solid #80705a;color:#d6c6af}
+.lunarity-discovery-all svg{width:17px;height:17px;flex-shrink:0}
+.lunarity-discovery-all:hover{color:#fff}
+.lunarity-discovery-grid{display:grid;grid-template-columns:1.12fr 1fr;grid-template-rows:repeat(2,245px);gap:14px}
+.lunarity-discovery-card{position:relative;display:block;overflow:hidden;isolation:isolate;background:#151515;border:1px solid #34312d;border-radius:12px;min-width:0;transition:border-color .25s}
+.lunarity-discovery-grid>.lunarity-discovery-card:first-child{grid-row:span 2}
+.lunarity-discovery-grid[data-count="1"]{grid-template-columns:1fr;grid-template-rows:400px}
+.lunarity-discovery-grid[data-count="1"]>.lunarity-discovery-card:first-child{grid-row:auto}
+.lunarity-discovery-grid[data-count="2"]{grid-template-rows:400px}
+.lunarity-discovery-grid[data-count="2"]>.lunarity-discovery-card:first-child{grid-row:auto}
+.lunarity-discovery-photo{object-fit:cover;object-position:center;transition:transform .7s}
+.lunarity-discovery-card:hover{border-color:#bca482}
+.lunarity-discovery-card:hover .lunarity-discovery-photo{transform:scale(1.035)}
+.lunarity-discovery-shade{position:absolute;inset:0;z-index:1;background:linear-gradient(180deg,rgba(0,0,0,.13),rgba(0,0,0,.05) 32%,rgba(0,0,0,.76))}
+.lunarity-discovery-index{position:absolute;top:18px;left:20px;right:20px;z-index:2;display:flex;align-items:center;justify-content:space-between;font-size:10px;letter-spacing:.16em;color:#fff;text-shadow:0 1px 4px #0008}
+.lunarity-discovery-index>span{font-size:24px;line-height:1;color:#f1e6d4}
+.lunarity-discovery-caption{position:absolute;inset:auto 24px 23px;z-index:2;display:flex;align-items:flex-end;justify-content:space-between;gap:14px;color:#fff}
+.lunarity-discovery-title{display:block;font-size:28px;font-weight:500;line-height:1.2;letter-spacing:-.025em}
+.lunarity-discovery-subtitle{display:block;font-size:11px;line-height:1.8;max-width:290px;margin-top:7px;color:#e0dcd4}
+.lunarity-discovery-arrow{display:grid;place-items:center;width:38px;height:38px;flex-shrink:0;border:1px solid #ffffff80;border-radius:50%;transition:background .2s}
+.lunarity-discovery-arrow svg{width:17px;height:17px}
+.lunarity-discovery-card:hover .lunarity-discovery-arrow{background:#ffffff1a}
+.lunarity-discovery-more{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:12px;margin-top:14px}
+.lunarity-discovery-card-small{aspect-ratio:1.3}
+.lunarity-discovery-card-small .lunarity-discovery-caption{inset:auto 14px 16px;gap:8px}
+.lunarity-discovery-card-small .lunarity-discovery-title{font-size:17px}
+.lunarity-discovery-card-small .lunarity-discovery-index{top:12px;left:14px;right:14px;font-size:8px}
+.lunarity-discovery-card-small .lunarity-discovery-index>span{font-size:17px}
+.lunarity-discovery-card-small .lunarity-discovery-arrow{width:28px;height:28px}
+.lunarity-discovery-card-small .lunarity-discovery-arrow svg{width:13px;height:13px}
+.lunarity-ear-heading{display:flex;align-items:center;gap:14px;margin-bottom:18px}
+.lunarity-home-sparkle{color:#bca482;font-size:26px;line-height:1}
+.lunarity-home-rule{height:1px;flex:1;background:#39342d;margin-left:8px}
+.lunarity-ear-grid{overflow:hidden;border:1px solid #39342d;border-radius:12px}
+.lunarity-home-divider{display:flex;align-items:center;justify-content:center;gap:20px;padding-block:32px}
+.lunarity-home-divider>span:not(:nth-child(2)){height:1px;background:#39342d;flex:1}
+.lunarity-home-divider>span:nth-child(2){color:#bca482;font-size:18px}
+.lunarity-home-note{position:relative;isolation:isolate;display:flex;align-items:center;justify-content:space-between;gap:25px;overflow:hidden;padding:32px;border:1px solid #4b4135;border-radius:12px;background:#10100f}
+.lunarity-home-note>div,.lunarity-home-note>a{position:relative;z-index:1}
+.lunarity-home-note .lunarity-home-eyebrow{margin-bottom:8px}
+.lunarity-home-note-orbit{position:absolute;right:16%;top:-65px;width:240px;height:240px;border:1px solid #bca48220;border-radius:50%;transform:rotate(-25deg) scaleX(1.5);pointer-events:none}
+@media(max-width:1023px){.lunarity-discovery-grid{grid-template-rows:repeat(2,205px)}.lunarity-discovery-more{grid-template-columns:repeat(3,minmax(0,1fr))}.lunarity-discovery-card-small{aspect-ratio:1.65}.lunarity-home-note{padding:25px}}
+@media(max-width:767px){.lunarity-discovery-heading{align-items:flex-start;flex-direction:column;gap:12px;margin-bottom:20px}.lunarity-discovery-grid{grid-template-columns:1fr 1fr;grid-template-rows:auto auto;gap:10px}.lunarity-discovery-grid>.lunarity-discovery-card:first-child{grid-column:1/-1;grid-row:auto;aspect-ratio:1.2}.lunarity-discovery-grid>.lunarity-discovery-card:not(:first-child){aspect-ratio:.95}.lunarity-discovery-grid[data-count="1"],.lunarity-discovery-grid[data-count="2"]{grid-template-rows:auto}.lunarity-discovery-grid[data-count="2"]{grid-template-columns:1fr 1fr}.lunarity-discovery-grid[data-count="2"]>.lunarity-discovery-card:first-child{grid-column:auto;aspect-ratio:.95}.lunarity-discovery-grid[data-count="1"]>.lunarity-discovery-card:first-child{aspect-ratio:1.25}.lunarity-discovery-caption{inset:auto 18px 18px}.lunarity-discovery-title{font-size:25px}.lunarity-discovery-subtitle{font-size:10px;line-height:1.6}.lunarity-discovery-grid>.lunarity-discovery-card:not(:first-child) .lunarity-discovery-caption{inset:auto 12px 15px;align-items:center;gap:7px}.lunarity-discovery-grid>.lunarity-discovery-card:not(:first-child) .lunarity-discovery-title{font-size:20px}.lunarity-discovery-grid>.lunarity-discovery-card:not(:first-child) .lunarity-discovery-subtitle{display:none}.lunarity-discovery-arrow{width:30px;height:30px}.lunarity-discovery-index{top:13px;left:14px;right:14px}.lunarity-discovery-more{grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin-top:10px}.lunarity-discovery-card-small{aspect-ratio:1.4}.lunarity-discovery-card-small:last-child:nth-child(odd){grid-column:1/-1;aspect-ratio:2.6}.lunarity-discovery-card-small .lunarity-discovery-title{font-size:17px}.lunarity-ear-heading{gap:10px}.lunarity-home-rule{margin-left:0}.lunarity-home-note{align-items:flex-start;flex-direction:column;gap:16px;padding:24px}.lunarity-home-divider{padding-block:26px}.lunarity-home-note-orbit{right:-70px;top:-35px}.lunarity-discovery-all{font-size:10px}}
+@media(prefers-reduced-motion:reduce){.lunarity-discovery-card,.lunarity-discovery-photo,.lunarity-discovery-arrow{transition:none}.lunarity-discovery-card:hover .lunarity-discovery-photo{transform:none}}
+@media(max-width:767px){.lunarity-discovery-card-small .lunarity-discovery-title{font-size:clamp(14px,3.6vw,17px)}}
+@media(max-width:374px){.lunarity-discovery-card-small .lunarity-discovery-arrow{display:none}}

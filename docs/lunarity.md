@@ -2,8 +2,19 @@
 
 A pedido da proprietária, a home mantém o layout anterior: fundo preto,
 banner de largura inteira, seção de recém-chegados, categorias e blocos de
-materiais. A reformulação clara foi retirada. As mudanças visuais se limitam
-à marca Lunarity no cabeçalho/rodapé e ao pequeno símbolo lunar.
+materiais. A reformulação clara foi retirada. A marca Lunarity permanece no
+cabeçalho/rodapé, com um pequeno símbolo lunar.
+
+O refinamento seguinte mantém essa base escura e a abertura original. Depois
+de recém-chegados, as categorias formam uma grade com um banner maior e dois
+menores; as demais categorias ficam em cartões compactos. Orelha, Nariz e
+Umbigo têm prioridade quando disponíveis, preservando links e fotos configurados.
+Banners com o mesmo destino não são duplicados. O grid também aceita conjuntos
+com um ou dois banners e fotos próprias para celular.
+
+Os minibanners para orelha ficam em um bloco delimitado. Uma divisória com estrela
+e um pequeno bloco de inspiração acrescentam detalhes discretos, sem trocar as
+cores ou a tipografia do layout anterior. Os efeitos respeitam movimento reduzido.
 
 O catálogo e os componentes existentes continuam sendo usados. Os banners
 locais permanecem como fallback quando o banco novo ainda não tem banners.
