@@ -33,3 +33,20 @@ test('server reads facets beyond the first page, scopes by product ID and does n
  assert.deepEqual(requests,[0,500]);assert.deepEqual(Array.from(result.materials),['Titânio'])
  assert.deepEqual(Array.from(result.jewelry,x=>x.value),['all','topo-labret-12'])
 })
+test('facet reader uses the light view and normalizes IDs; older databases remain readable',async()=>{
+ for(const missingView of [false,true]){
+  const requests=[]
+  const {getCatalogFacets}=load('src/lib/catalog-facets-server.ts',{
+   'next/cache':{unstable_cache:fn=>fn},'./catalog-server':{getStoreFilterProducts:async()=>[{id:'42'}]},
+   './catalog-area':{AREA_OPTIONS,JEWELRY_OPTIONS,getSubareaOptions,matchesAreaSelection},'./catalog-facets':{availableCatalogFilters},
+  },{SUPABASE_URL:'https://fixture.example',SUPABASE_PUBLISHABLE_KEY:'public'},{fetch:async(url,options)=>{
+   const path=new URL(url).pathname;requests.push(path);assert.equal(options.next.revalidate,60)
+   if(missingView&&path.endsWith('lunarity_catalog_facets_v1'))return new Response('{}',{status:404})
+   return new Response(JSON.stringify([{...rows[0],id:42}]))
+  }})
+  const result=await getCatalogFacets('conch',{area:'all',subarea:'all',jewelry:'all',material:'all'})
+  assert.deepEqual(Array.from(result.materials),['Titânio'])
+  assert.equal(requests.length,missingView?2:1)
+  assert.ok(requests[0].endsWith('lunarity_catalog_facets_v1'))
+ }
+})

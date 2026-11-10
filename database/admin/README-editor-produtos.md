@@ -40,3 +40,9 @@ continua restrita a usuarios confirmados e autorizados. Nenhum valor de chave e
 exibido. As falhas de lista, busca, editor e estoque mostram apenas codigos
 SQLSTATE/PostgREST e a etapa afetada; mensagens e detalhes do banco nao vao para
 o navegador. Logs ADMIN_DATABASE_FAILURE seguem a mesma regra.
+
+Quando o codigo e 42703, o aviso tambem extrai somente o identificador da coluna
+inexistente da mensagem do PostgreSQL, sem exibir a mensagem completa. Falhas dos
+indicadores de totais nao bloqueiam uma lista de produtos carregada com sucesso;
+os indicadores indisponiveis ficam com um traco e um aviso, em vez de mostrar
+zero ou ocultar os resultados da busca.

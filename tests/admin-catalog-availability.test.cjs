@@ -13,11 +13,11 @@ test('inventory distinguishes an absent view from permission and connection fail
   }
 })
 
-function catalog(inventoryError, queryError = null) {
+function catalog(inventoryError, queryError = null, statisticsError = queryError) {
   const product = { id: 'product', name: 'Argola Lunarity', status: 'published', regular_price: 39 }
   const chain = { select() { return chain }, eq() { return chain }, order() { return chain },
     range: async () => ({ data: [product], count: 1, error: queryError }),
-    then(resolve) { return Promise.resolve({ count: 1, error: queryError }).then(resolve) } }
+    then(resolve) { return Promise.resolve({ count: 1, error: statisticsError }).then(resolve) } }
   return renderer('src/app/admin/produtos/page.tsx', {
     'next/link': { default: 'Link' },
     'next/navigation': { redirect() { throw new Error('Unexpected redirect') } },
@@ -27,6 +27,7 @@ function catalog(inventoryError, queryError = null) {
     '../actions': { logout() {} },
     '@/components/admin/AdminCatalogSetupNotice': { default: 'SetupNotice' },
     '@/components/admin/AdminDatabaseNotice': { default: 'DatabaseNotice' },
+    '@/lib/admin-diagnostics': load('src/lib/admin-diagnostics.ts'),
   }, { Error })
 }
 
@@ -49,6 +50,13 @@ test('an absent search function displays installation guidance',async()=>{
   const tree=await catalog(null,{code:'PGRST202'}).render({})
   assert.equal(nodes(tree,n=>n.type==='SetupNotice').length,1)
 })
+test('a failed statistic does not hide a valid product list or invent a zero count',async()=>{
+ const tree=await catalog(null,null,{code:'42703',message:'column products.missing does not exist'}).render({})
+ assert.equal(nodes(tree,n=>n.type==='DatabaseNotice').length,0)
+ assert.match(JSON.stringify(tree),/Argola Lunarity/)
+ assert.match(JSON.stringify(tree),/Alguns indicadores/)
+ assert.ok(nodes(tree,n=>n.props.children==='—').length)
+})
 
 test('name search uses parameterized terms and preserves status and page filters',async()=>{
  const calls=[]
@@ -56,7 +64,7 @@ test('name search uses parameterized terms and preserves status and page filters
  const view=renderer('src/app/admin/produtos/page.tsx',{
   'next/link':{default:'Link'},'next/navigation':{redirect(){throw Error('unexpected')}},
   '@/lib/admin-auth':{adminDatabase:async()=>({db:{from:()=>chain,rpc:(name,args,options)=>{calls.push(['rpc',name,args,options]);return chain}},user:{email:'admin@example.test'}})},
-  '@/lib/admin-inventory':{getAdminInventory:async()=>new Map()},'@/components/admin/ProductStockBadge':{default:'StockBadge'},'../actions':{logout(){}},'@/components/admin/AdminCatalogSetupNotice':{default:'SetupNotice'},'@/components/admin/AdminDatabaseNotice':{default:'DatabaseNotice'},
+  '@/lib/admin-inventory':{getAdminInventory:async()=>new Map()},'@/components/admin/ProductStockBadge':{default:'StockBadge'},'../actions':{logout(){}},'@/components/admin/AdminCatalogSetupNotice':{default:'SetupNotice'},'@/components/admin/AdminDatabaseNotice':{default:'DatabaseNotice'},'@/lib/admin-diagnostics':load('src/lib/admin-diagnostics.ts'),
  })
  const tree=await view.render({searchParams:{q:'titanio flor',status:'published',page:'2'}})
  assert.equal(calls[0][1],'lunarity_admin_search_products')

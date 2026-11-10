@@ -34,4 +34,7 @@ test('authenticated database error notices show only safe codes and fixed guidan
  }
  assert.equal(diagnostics.adminErrorCode({code:'57014'}),'57014')
  assert.equal(diagnostics.adminErrorCode({message:'Invalid API key'}),'API_KEY_INVALID')
+ assert.equal(diagnostics.adminErrorField({code:'42703',message:'column pgrst_source.created_at does not exist'}),'pgrst_source.created_at')
+ assert.equal(diagnostics.adminErrorField({code:'42703',message:'column "missing_field" does not exist'}),'missing_field')
+ assert.equal(diagnostics.adminErrorField({code:'42703',message:'private response text'}),null)
 })

@@ -7,6 +7,7 @@ import { logout } from '../actions'
 import type { InventoryRow } from '@/lib/inventory'
 import AdminCatalogSetupNotice from '@/components/admin/AdminCatalogSetupNotice'
 import AdminDatabaseNotice from '@/components/admin/AdminDatabaseNotice'
+import { adminErrorCode, adminErrorField } from '@/lib/admin-diagnostics'
 
 interface Props {
   searchParams?: Record<string, string | string[] | undefined>
@@ -82,13 +83,15 @@ export default async function AdminProducts({ searchParams = {} }: Props) {
 
   if (result.error?.code === 'PGRST202') return <AdminCatalogSetupNotice />
 
-  if (
-    [result, allCount, publishedCount, draftCount, variantCount]
-      .some((item) => item.error)
-  ) {
-    const failure = [result, allCount, publishedCount, draftCount, variantCount].find(item => item.error)
-    return <AdminDatabaseNotice error={failure?.error} stage={search ? 'busca' : 'lista'} />
-  }
+  if (result.error) return <AdminDatabaseNotice error={result.error} stage={search ? 'busca' : 'lista'} />
+  const statistics = [
+    { label: 'Produtos', result: allCount },
+    { label: 'Publicados', result: publishedCount },
+    { label: 'Rascunhos', result: draftCount },
+    { label: 'Variações', result: variantCount },
+  ]
+  const failedStatistics = statistics.filter(item => item.result.error)
+  failedStatistics.forEach(item => console.error('ADMIN_DATABASE_FAILURE', { stage: `indicador: ${item.label}`, code: adminErrorCode(item.result.error), field: adminErrorField(item.result.error) }))
 
   const products = (result.data || []) as AdminProduct[]
   let inventory = new Map<string, InventoryRow>()
@@ -149,17 +152,13 @@ export default async function AdminProducts({ searchParams = {} }: Props) {
           </p>
         )}
 
+        {failedStatistics.length > 0 && <p role="status" className="mb-5 rounded-2xl border border-[#E5DED3] bg-white p-4 text-sm leading-6 text-[#625B51]">Alguns indicadores não puderam ser carregados. A lista e a busca de produtos continuam disponíveis.</p>}
         <div className="mb-7 grid grid-cols-2 gap-3 lg:grid-cols-4">
-          {[
-            ['Produtos', allCount.count],
-            ['Publicados', publishedCount.count],
-            ['Rascunhos', draftCount.count],
-            ['Variações', variantCount.count],
-          ].map(([label, count]) => (
-            <div key={String(label)} className="rounded-[20px] border border-[#E5DED3] bg-white px-5 py-4">
+          {statistics.map(({label, result: statistic}) => (
+            <div key={label} className="rounded-[20px] border border-[#E5DED3] bg-white px-5 py-4">
               <p className="text-[11px] text-[#81796C]">{label}</p>
               <p className="mt-2 text-[26px] font-medium tracking-[-0.03em]">
-                {Number(count || 0).toLocaleString('pt-BR')}
+                {statistic.error ? '—' : Number(statistic.count || 0).toLocaleString('pt-BR')}
               </p>
             </div>
           ))}

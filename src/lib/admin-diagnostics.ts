@@ -21,3 +21,9 @@ export function adminErrorCode(error: unknown): string {
   const code = error && typeof error === 'object' && 'code' in error ? String(error.code) : ''
   return /^(?:[A-Z0-9]{5}|PGRST\d{3})$/.test(code) ? code : 'UNKNOWN'
 }
+
+export function adminErrorField(error: unknown): string | null {
+  if (adminErrorCode(error) !== '42703' || !error || typeof error !== 'object' || !('message' in error)) return null
+  const match = String(error.message).match(/\bcolumn\s+((?:"?[A-Za-z_][A-Za-z0-9_]*"?)(?:\.(?:"?[A-Za-z_][A-Za-z0-9_]*"?))*)\s+does not exist\b/i)
+  return match ? match[1].replace(/"/g, '').slice(0, 128) : null
+}

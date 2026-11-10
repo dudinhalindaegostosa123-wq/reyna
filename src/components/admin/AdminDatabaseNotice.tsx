@@ -1,9 +1,10 @@
 import Link from 'next/link'
-import { adminErrorCode } from '@/lib/admin-diagnostics'
+import { adminErrorCode, adminErrorField } from '@/lib/admin-diagnostics'
 
 export default function AdminDatabaseNotice({ error, stage }: { error: unknown; stage: string }) {
   const code = adminErrorCode(error)
-  console.error('ADMIN_DATABASE_FAILURE', { stage, code })
+  const field = adminErrorField(error)
+  console.error('ADMIN_DATABASE_FAILURE', { stage, code, field })
   const permission = ['42501', 'PGRST301', 'PGRST302', 'PGRST303', 'API_KEY_INVALID'].includes(code)
   return <main className="mx-auto max-w-2xl px-6 py-12">
     <h1 className="text-2xl font-medium">Não foi possível consultar os produtos</h1>
@@ -13,6 +14,7 @@ export default function AdminDatabaseNotice({ error, stage }: { error: unknown; 
         ? 'O banco cancelou a consulta por demora. Aguarde alguns instantes e tente novamente.'
         : 'O banco retornou um erro ao carregar os dados. Use o código abaixo para identificar a configuração pendente.'}</p>
     <p className="mt-4 text-sm">Código: <strong>{code}</strong> · Etapa: {stage}</p>
+    {field && <p className="mt-3 text-sm">Coluna indicada pelo banco: <strong>{field}</strong></p>}
     <div className="mt-6 flex flex-wrap gap-5 text-sm">
       <a href="" className="inline-flex min-h-[44px] items-center underline">Tentar novamente</a>
       {permission && <Link href="/admin/configuracao" className="inline-flex min-h-[44px] items-center underline">Conferir configuração</Link>}
