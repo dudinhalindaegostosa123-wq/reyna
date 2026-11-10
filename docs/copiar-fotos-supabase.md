@@ -49,3 +49,21 @@ Testes locais cobrem paginação além de 500 registros, correspondência dos ID
 recusa de associação com pai incorreto, preservação de bytes, retomada por checksum,
 recusa de escrita na origem, HTML no lugar de imagem e tratamento de HTTP 403.
 A cópia real exige os Secrets da origem; não foi executada nesta máquina.
+
+## Velocidade e retomada
+
+A cópia processa até quatro mídias em paralelo. Um bloqueio por caminho impede
+baixar simultaneamente o mesmo arquivo para diferentes associações; o limite de
+bytes considera também uploads em andamento. O workflow permite até 330 minutos.
+
+Na retomada, o script lê os vínculos já gravados e lista os objetos existentes no
+prefixo `copia-supabase-v1`. Uma mídia com os mesmos metadados e todos os arquivos
+presentes é contada em `retomadas`, sem baixar novamente. Um vínculo incompleto
+ou com arquivo ausente é reparado pelo fluxo normal, com checksum na reutilização
+de um objeto existente. Essa retomada reaproveita a cópia concluída, e não é um
+mecanismo de sincronização de edições posteriores nos arquivos da origem.
+
+É possível cancelar uma execução lenta e iniciar **Run workflow → main** após
+uma atualização do código. Os uploads e vínculos já concluídos permanecem no
+Supabase. Re-run da execução antiga usa a versão antiga do workflow/script;
+para usar a otimização é necessário criar uma execução nova.

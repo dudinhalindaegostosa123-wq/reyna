@@ -3,6 +3,8 @@ import hashlib
 import io
 import json
 import unittest
+import threading
+import time
 import urllib.error
 from unittest.mock import patch
 from scripts.copy_supabase_media import Client, CopyError, copy_media, image_format, object_path, source_config
@@ -46,7 +48,7 @@ class Destination:
         self.uploads = []
 
     def rows(self, table, columns):
-        return copy.deepcopy(self.tables[table])
+        return copy.deepcopy(list(self.media.values()) if table == 'product_media' else self.tables[table])
 
     def send(self, path, method='GET', **kwargs):
         if method == 'POST':
@@ -60,6 +62,9 @@ class Destination:
         return self.objects[path]
 
     def json(self, path, method, payload, **kwargs):
+        if path == '/storage/v1/object/list/produtos':
+            names = sorted(p.rsplit('/', 1)[1] for p in self.objects)
+            return [{'id': 'stored', 'name': n} for n in names[payload['offset']:payload['offset'] + payload['limit']]]
         assert path == '/rest/v1/product_media?on_conflict=id'
         assert method == 'POST'
         for row in payload:
@@ -85,10 +90,79 @@ class CopyTests(unittest.TestCase):
         copy_media(source, destination, lambda _: None)
         ids = set(destination.media)
         result = copy_media(source, destination, lambda _: None)
-        self.assertEqual(result.reused, 1)
+        self.assertEqual(result.resumed, 1)
+        self.assertEqual(result.reused, 0)
         self.assertEqual(result.uploaded, 0)
         self.assertEqual(set(destination.media), ids)
         self.assertEqual(len(destination.objects), 1)
+
+    def test_completed_media_are_resumed_without_source_downloads(self):
+        source, destination = Source(), Destination()
+        copy_media(source, destination, lambda _: None)
+        source.reads.clear()
+        source.failure = 'HTTP_403'
+        result = copy_media(source, destination, lambda _: None)
+        self.assertEqual(result.resumed, 1)
+        self.assertEqual(result.failures, 0)
+        self.assertFalse(source.reads)
+
+    def test_missing_checkpoint_file_is_repaired(self):
+        source, destination = Source(), Destination()
+        copy_media(source, destination, lambda _: None)
+        destination.objects.clear()
+        result = copy_media(source, destination, lambda _: None)
+        self.assertEqual(result.resumed, 0)
+        self.assertEqual(result.associated, 1)
+        self.assertEqual(result.uploaded, 1)
+
+    def test_media_transfer_runs_concurrently_with_shared_file_deduplication(self):
+        source, destination = Source(), Destination()
+        items = []
+        for n in range(8):
+            item = copy.deepcopy(source.tables['product_media'][0])
+            item['id'] = 'media-' + str(n)
+            item['storage_path'] = f'gallery/{n // 2}.png'
+            items.append(item)
+        source.tables['product_media'] = items
+        active, maximum = 0, 0
+        lock = threading.Lock()
+        original = source.send
+        def download(path):
+            nonlocal active, maximum
+            with lock:
+                active += 1
+                maximum = max(maximum, active)
+            time.sleep(0.02)
+            try:
+                return original(path)
+            finally:
+                with lock:
+                    active -= 1
+        source.send = download
+        result = copy_media(source, destination, lambda _: None)
+        self.assertEqual(result.associated, 8)
+        self.assertEqual(len(source.reads), 4)
+        self.assertGreater(maximum, 1)
+        self.assertLessEqual(maximum, 4)
+        self.assertEqual(result.uploaded, 1)
+
+    def test_parallel_upload_budget_includes_inflight_uploads(self):
+        import scripts.copy_supabase_media as module
+        source, destination = Source(), Destination()
+        second = copy.deepcopy(source.tables['product_media'][0])
+        second.update(id='other', storage_path='gallery/other.png')
+        source.tables['product_media'].append(second)
+        original_send = destination.send
+        def slow_upload(path, method='GET', **kwargs):
+            if method == 'POST':
+                time.sleep(0.03)
+            return original_send(path, method, **kwargs)
+        destination.send = slow_upload
+        with patch.object(module, 'MAX_UPLOAD_BYTES', len(IMAGE)):
+            result = copy_media(source, destination, lambda _: None)
+        self.assertEqual(result.uploaded, 1)
+        self.assertEqual(result.failures, 1)
+        self.assertLessEqual(result.bytes_uploaded, len(IMAGE))
 
     def test_existing_content_is_verified_before_reuse(self):
         source, destination = Source(), Destination()
