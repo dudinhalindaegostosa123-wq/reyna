@@ -4,6 +4,7 @@ import Link from 'next/link'
 import { redirect } from 'next/navigation'
 import { adminDatabase } from '@/lib/admin-auth'
 import { logout } from '../actions'
+import type { InventoryRow } from '@/lib/inventory'
 
 interface Props {
   searchParams?: Record<string, string | string[] | undefined>
@@ -100,7 +101,14 @@ export default async function AdminProducts({ searchParams = {} }: Props) {
   }
 
   const products = (result.data || []) as AdminProduct[]
-  const inventory = await getAdminInventory(db,products.map(product=>String(product.id)))
+  let inventory = new Map<string, InventoryRow>()
+  let inventoryUnavailable = false
+  try {
+    inventory = await getAdminInventory(db, products.map(product => String(product.id)))
+  } catch (error) {
+    if (!(error instanceof Error) || error.message !== 'ADMIN_INVENTORY_NOT_INSTALLED') throw error
+    inventoryUnavailable = true
+  }
   const total = result.count || 0
   const totalPages = Math.max(1, Math.ceil(total / PER_PAGE))
 
@@ -143,6 +151,13 @@ export default async function AdminProducts({ searchParams = {} }: Props) {
             {user.email}
           </p>
         </div>
+
+        {inventoryUnavailable && (
+          <p role="status" className="mb-6 rounded-2xl border border-[#E5DED3] bg-white p-4 text-sm leading-6 text-[#625B51]">
+            O catálogo está disponível. O resumo de estoque ainda precisa ser instalado neste banco;
+            as quantidades serão mostradas como não disponíveis até a configuração ser concluída.
+          </p>
+        )}
 
         <div className="mb-7 grid grid-cols-2 gap-3 lg:grid-cols-4">
           {[

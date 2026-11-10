@@ -13,7 +13,13 @@ export async function getAdminInventory(
     .select('*')
     .in('product_id', ids)
 
-  if (error) throw new Error('ADMIN_INVENTORY_QUERY')
+  if (error) {
+    // A instalação inicial da vitrine ainda não inclui esta visão administrativa.
+    if (['PGRST205', '42P01'].includes(error.code)) {
+      throw new Error('ADMIN_INVENTORY_NOT_INSTALLED')
+    }
+    throw new Error('ADMIN_INVENTORY_QUERY')
+  }
 
   return new Map(
     (data || []).map(row => [String(row.product_id), row as InventoryRow])

@@ -1,0 +1,56 @@
+const { test } = require('node:test')
+const assert = require('node:assert/strict')
+const { load } = require('./helpers/load.cjs')
+const { renderer, nodes } = require('./helpers/render.cjs')
+
+test('inventory distinguishes an absent view from permission and connection failures', async () => {
+  const { getAdminInventory } = load('src/lib/admin-inventory.ts')
+  for (const code of ['PGRST205', '42P01', '42501', '08006']) {
+    const db = { from: () => ({ select: () => ({ in: async () => ({ error: { code } }) }) }) }
+    await assert.rejects(getAdminInventory(db, ['product']), {
+      message: ['PGRST205', '42P01'].includes(code) ? 'ADMIN_INVENTORY_NOT_INSTALLED' : 'ADMIN_INVENTORY_QUERY',
+    })
+  }
+})
+
+function catalog(inventoryError, queryError = null) {
+  const product = { id: 'product', name: 'Argola Lunarity', status: 'published', regular_price: 39 }
+  const chain = { select() { return chain }, eq() { return chain }, order() { return chain },
+    range: async () => ({ data: [product], count: 1, error: queryError }),
+    then(resolve) { return Promise.resolve({ count: 1, error: queryError }).then(resolve) } }
+  return renderer('src/app/admin/produtos/page.tsx', {
+    'next/link': { default: 'Link' },
+    'next/navigation': { redirect() { throw new Error('Unexpected redirect') } },
+    '@/lib/admin-auth': { adminDatabase: async () => ({ db: { from: () => chain }, user: { email: 'admin@example.test' } }) },
+    '@/lib/admin-inventory': { getAdminInventory: async () => { if (inventoryError) throw new Error(inventoryError); return new Map() } },
+    '@/components/admin/ProductStockBadge': { default: 'StockBadge' },
+    '../actions': { logout() {} },
+  }, { Error })
+}
+
+test('catalog stays usable when the inventory view has not been installed', async () => {
+  const tree = await catalog('ADMIN_INVENTORY_NOT_INSTALLED').render({})
+  assert.match(JSON.stringify(tree), /Argola Lunarity/)
+  assert.equal(nodes(tree, n => n.props.role === 'status').length, 1)
+  assert.equal(nodes(tree, n => n.type === 'StockBadge')[0].props.row, undefined)
+  assert.ok(nodes(tree, n => n.type === 'Link' && n.props.href === '/admin/produtos/product').length)
+})
+
+test('catalog does not suppress permission errors or failed product queries', async () => {
+  await assert.rejects(catalog('ADMIN_INVENTORY_QUERY').render({}), /ADMIN_INVENTORY_QUERY/)
+  await assert.rejects(catalog(null, { code: '42501' }).render({}), /ADMIN_CATALOG_QUERY/)
+  const tree = await catalog(null).render({})
+  assert.equal(nodes(tree, n => n.props.role === 'status').length, 0)
+})
+
+test('missing admin secret routes only authorized users to configuration instructions', async () => {
+  for (const allowed of [true, false]) {
+    const auth = load('src/lib/admin-auth.ts', {
+      '@supabase/ssr': { createServerClient: () => ({ auth: { getUser: async () => ({ data: { user: { id: 'admin-id', email_confirmed_at: '2026-01-01' } } }) } }) },
+      '@supabase/supabase-js': { createClient() { throw new Error('Must not create a database client') } },
+      'next/headers': { cookies: () => ({}) },
+      'next/navigation': { redirect(path) { throw new Error(path) } },
+    }, { SUPABASE_URL: 'https://fixture.supabase.co', SUPABASE_PUBLISHABLE_KEY: 'public-fixture', SERENITY_ADMIN_USER_IDS: allowed ? 'admin-id' : '' })
+    await assert.rejects(auth.adminDatabase(), { message: allowed ? '/admin/configuracao' : '/admin/login?erro=permissao' })
+  }
+})

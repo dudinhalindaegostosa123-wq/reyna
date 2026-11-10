@@ -89,6 +89,10 @@ Os grids de categorias e detalhes para orelha usam largura máxima de 1600 px no
 desktop. Os banners principais têm duas linhas de 300 px e títulos maiores,
 mantendo o empilhamento adaptado para celular.
 
+Após a revisão visual, o título principal foi reduzido para no máximo 58 px no
+desktop e 38 px no celular. Texto e botão ficam mais altos, na área escura da
+foto, deixando livres as joias da composição.
+
 ## Acesso administrativo
 
 O painel fica em `/admin`, com login em `/admin/login`. O usuário deve existir
@@ -99,3 +103,15 @@ Usuários comuns da loja não ganham permissão administrativa automaticamente.
 Senhas devem ser definidas no Supabase e nunca enviadas no chat ou no Git.
 A liberação do login não instala as tabelas/RPCs que cada módulo administrativo
 exige; o banco preparado inicialmente neste onboarding cobre a vitrine.
+
+`SUPABASE_SECRET_KEY` também precisa estar na Vercel (Production), com a chave
+administrativa do mesmo projeto novo usado em `SUPABASE_URL`. Secrets do GitHub
+Actions não são enviados à Vercel. Se essa chave estiver ausente, usuários já
+autorizados são encaminhados para `/admin/configuracao`, com instruções sem
+expor valores. Essa rota também exige autenticação e UID autorizado.
+
+A lista de produtos continua disponível se apenas a visão
+`serenity_admin_inventory` não estiver instalada. Nesse caso, exibe um aviso e
+não inventa valores de estoque. Falhas de permissão, conexão e consulta de
+produtos continuam sendo tratadas como erros; o editor de produtos mantém sua
+exigência da visão de estoque.

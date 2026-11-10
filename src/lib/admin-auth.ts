@@ -59,7 +59,7 @@ export async function adminDatabase() {
   const url = process.env.SUPABASE_URL?.trim()
   const key = process.env.SUPABASE_SECRET_KEY?.trim()
 
-  if (!url || !key) throw new Error('ADMIN_CONFIGURATION')
+  if (!url || !key) redirect('/admin/configuracao')
 
   const db = createClient(url, key, {
     auth: {
