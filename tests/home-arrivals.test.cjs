@@ -59,6 +59,7 @@ for(const banners of [null,[]])test(`Lunarity hero and numbered home order work 
  assert.equal(hero.href,'/categoria/todos')
  assert.equal(hero.title,'Cada fase, um novo brilho.')
  assert.ok(!/swarovski/i.test(JSON.stringify(hero)))
+ assert.equal(nodes(tree,n=>n.props.className==='lunarity-home-sparkle').length,0)
  assert.equal(nodes(tree,n=>n.type==='home/CategoryDiscoveryGrid')[0].props.items.length,8)
  assert.ok(nodes(tree,n=>n.type==='home/CategoryDiscoveryGrid')[0].props.items.every(item=>item.image.startsWith('/banners/lunarity-categorias/')&&item.mobileImage.includes('-mobile.webp')))
  const blocks=tree.props.children.filter(child=>child && typeof child==='object')

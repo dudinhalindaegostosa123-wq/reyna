@@ -229,7 +229,7 @@ export default async function HomePage() {
       <CategoryDiscoveryGrid items={categoryBanners} />
 
       {categoryBanners.some(item => /orelha/i.test(item.name)) && <section aria-labelledby="ear-details-title" className="mx-auto max-w-[1600px] px-4 pb-10 sm:px-6 md:px-10 md:pb-14">
-        <div className="lunarity-ear-heading"><span className="lunarity-home-sparkle" aria-hidden="true">✧</span><h2 id="ear-details-title" className="font-display text-xl sm:text-2xl">Os detalhes fazem a composição.</h2><span className="lunarity-home-rule" aria-hidden="true" /></div>
+        <div className="lunarity-ear-heading"><h2 id="ear-details-title" className="font-display text-xl sm:text-2xl">Os detalhes fazem a composição.</h2><span className="lunarity-home-rule" aria-hidden="true" /></div>
         <div className="lunarity-ear-grid"><EarMiniBanners images={homeImageMap(banners,'mini')} /></div>
       </section>}
 

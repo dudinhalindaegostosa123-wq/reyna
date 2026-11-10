@@ -53,4 +53,8 @@ test('mini banners expose the four requested destinations', async () => {
   const tree=await api.default()
   assert.deepEqual(nodes(tree,node=>node.type==='Link').map(node=>node.props.href),[
     '/categoria/hastes-e-conectores','/categoria/correntes-e-pingentes','/categoria/argolas','/categoria/labret'])
+  assert.equal(nodes(tree,node=>node.type==='Image'&&node.props.src.startsWith('/banners/lunarity-detalhes/')).length,4)
+  assert.equal(nodes(tree,node=>node.type==='source'&&node.props.srcSet.endsWith('-mobile.webp')).length,4)
+  const custom=await api.default({images:{'/categoria/argolas':'/custom-ring.webp'}})
+  assert.ok(nodes(custom,node=>node.type==='Image'&&node.props.src==='/custom-ring.webp').length)
 })
