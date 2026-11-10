@@ -6,6 +6,7 @@ import { adminDatabase } from '@/lib/admin-auth'
 import { logout } from '../actions'
 import type { InventoryRow } from '@/lib/inventory'
 import AdminCatalogSetupNotice from '@/components/admin/AdminCatalogSetupNotice'
+import AdminDatabaseNotice from '@/components/admin/AdminDatabaseNotice'
 
 interface Props {
   searchParams?: Record<string, string | string[] | undefined>
@@ -85,7 +86,8 @@ export default async function AdminProducts({ searchParams = {} }: Props) {
     [result, allCount, publishedCount, draftCount, variantCount]
       .some((item) => item.error)
   ) {
-    throw new Error('ADMIN_CATALOG_QUERY')
+    const failure = [result, allCount, publishedCount, draftCount, variantCount].find(item => item.error)
+    return <AdminDatabaseNotice error={failure?.error} stage={search ? 'busca' : 'lista'} />
   }
 
   const products = (result.data || []) as AdminProduct[]
@@ -94,7 +96,7 @@ export default async function AdminProducts({ searchParams = {} }: Props) {
   try {
     inventory = await getAdminInventory(db, products.map(product => String(product.id)))
   } catch (error) {
-    if (!(error instanceof Error) || error.message !== 'ADMIN_INVENTORY_NOT_INSTALLED') throw error
+    if (!(error instanceof Error) || error.message !== 'ADMIN_INVENTORY_NOT_INSTALLED') return <AdminDatabaseNotice error={error} stage="estoque da lista" />
     inventoryUnavailable = true
   }
   const total = result.count || 0

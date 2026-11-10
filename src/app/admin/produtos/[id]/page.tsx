@@ -6,6 +6,7 @@ import { adminDatabase } from '@/lib/admin-auth'
 import type { EditorBundle } from '@/lib/admin-unified'
 import UnifiedProductEditor from './UnifiedProductEditor'
 import AdminCatalogSetupNotice from '@/components/admin/AdminCatalogSetupNotice'
+import AdminDatabaseNotice from '@/components/admin/AdminDatabaseNotice'
 
 export const dynamic = 'force-dynamic'
 
@@ -38,7 +39,12 @@ export default async function EditProduct({
     notFound()
   }
 
-  const rawOptions = await getAdminClassification(db)
+  let rawOptions
+  try {
+    rawOptions = await getAdminClassification(db)
+  } catch (error) {
+    return <AdminDatabaseNotice error={error} stage="categorias do editor" />
+  }
 
   const result = await db.rpc(
     'serenity_admin_read_editor',
@@ -50,7 +56,7 @@ export default async function EditProduct({
   if (result.error?.code === 'PGRST202') return <AdminCatalogSetupNotice />
 
   if (result.error) {
-    throw new Error('ADMIN_EDITOR_READ')
+    return <AdminDatabaseNotice error={result.error} stage="editor" />
   }
 
   if (!result.data) {
@@ -69,7 +75,7 @@ export default async function EditProduct({
     const inventoryMap = await getAdminInventory(db, [String(bundle.product.id)])
     rawInventory = inventoryMap.get(String(bundle.product.id))
   } catch (error) {
-    if (!(error instanceof Error) || error.message !== 'ADMIN_INVENTORY_NOT_INSTALLED') throw error
+    if (!(error instanceof Error) || error.message !== 'ADMIN_INVENTORY_NOT_INSTALLED') return <AdminDatabaseNotice error={error} stage="estoque do editor" />
     inventoryUnavailable = true
   }
 

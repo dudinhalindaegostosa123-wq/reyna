@@ -16,6 +16,7 @@ export default async function AdminConfiguration() {
         Production. Use a Secret key ou a chave service_role do mesmo projeto de SUPABASE_URL.
         Depois faça Redeploy. As variáveis cadastradas no GitHub Actions não são copiadas para a Vercel.
       </p>
+      <p className="mt-4 text-sm leading-7">A chave administrativa começa com sb_secret_. Se estiver usando uma chave JWT antiga (eyJ…), ela deve ser service_role. Publishable e anon são chaves públicas e não permitem este acesso.</p>
       <p className="mt-4 text-sm leading-7">Não envie a chave pelo chat.</p>
       <Link href="/admin/produtos" className="mt-6 inline-block underline">Tentar abrir os produtos</Link>
     </main>

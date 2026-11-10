@@ -26,6 +26,7 @@ function catalog(inventoryError, queryError = null) {
     '@/components/admin/ProductStockBadge': { default: 'StockBadge' },
     '../actions': { logout() {} },
     '@/components/admin/AdminCatalogSetupNotice': { default: 'SetupNotice' },
+    '@/components/admin/AdminDatabaseNotice': { default: 'DatabaseNotice' },
   }, { Error })
 }
 
@@ -37,9 +38,9 @@ test('catalog stays usable when the inventory view has not been installed', asyn
   assert.ok(nodes(tree, n => n.type === 'Link' && n.props.href === '/admin/produtos/product').length)
 })
 
-test('catalog does not suppress permission errors or failed product queries', async () => {
-  await assert.rejects(catalog('ADMIN_INVENTORY_QUERY').render({}), /ADMIN_INVENTORY_QUERY/)
-  await assert.rejects(catalog(null, { code: '42501' }).render({}), /ADMIN_CATALOG_QUERY/)
+test('catalog displays explicit failure notices for permission errors and failed product queries', async () => {
+  assert.equal(nodes(await catalog('ADMIN_INVENTORY_QUERY').render({}),n=>n.type==='DatabaseNotice').length,1)
+  assert.equal(nodes(await catalog(null,{code:'42501'}).render({}),n=>n.type==='DatabaseNotice')[0].props.error.code,'42501')
   const tree = await catalog(null).render({})
   assert.equal(nodes(tree, n => n.props.role === 'status').length, 0)
 })
@@ -55,7 +56,7 @@ test('name search uses parameterized terms and preserves status and page filters
  const view=renderer('src/app/admin/produtos/page.tsx',{
   'next/link':{default:'Link'},'next/navigation':{redirect(){throw Error('unexpected')}},
   '@/lib/admin-auth':{adminDatabase:async()=>({db:{from:()=>chain,rpc:(name,args,options)=>{calls.push(['rpc',name,args,options]);return chain}},user:{email:'admin@example.test'}})},
-  '@/lib/admin-inventory':{getAdminInventory:async()=>new Map()},'@/components/admin/ProductStockBadge':{default:'StockBadge'},'../actions':{logout(){}},'@/components/admin/AdminCatalogSetupNotice':{default:'SetupNotice'},
+  '@/lib/admin-inventory':{getAdminInventory:async()=>new Map()},'@/components/admin/ProductStockBadge':{default:'StockBadge'},'../actions':{logout(){}},'@/components/admin/AdminCatalogSetupNotice':{default:'SetupNotice'},'@/components/admin/AdminDatabaseNotice':{default:'DatabaseNotice'},
  })
  const tree=await view.render({searchParams:{q:'titanio flor',status:'published',page:'2'}})
  assert.equal(calls[0][1],'lunarity_admin_search_products')
@@ -70,6 +71,7 @@ test('name search uses parameterized terms and preserves status and page filters
 test('missing admin secret routes only authorized users to configuration instructions', async () => {
   for (const allowed of [true, false]) {
     const auth = load('src/lib/admin-auth.ts', {
+      '@/lib/admin-diagnostics':load('src/lib/admin-diagnostics.ts'),
       '@supabase/ssr': { createServerClient: () => ({ auth: { getUser: async () => ({ data: { user: { id: 'admin-id', email_confirmed_at: '2026-01-01' } } }) } }) },
       '@supabase/supabase-js': { createClient() { throw new Error('Must not create a database client') } },
       'next/headers': { cookies: () => ({}) },

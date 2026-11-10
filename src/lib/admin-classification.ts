@@ -58,7 +58,7 @@ export async function getAdminClassification(
       .range(offset, offset + pageSize - 1)
 
     if (result.error) {
-      throw new Error('ADMIN_CLASSIFICATION_READ')
+      throw Object.assign(new Error('ADMIN_CLASSIFICATION_READ'), { code: result.error.code })
     }
 
     const rows = result.data || []
@@ -105,7 +105,7 @@ export async function getAdminClassification(
       .range(offset, offset + pageSize - 1)
 
     if (result.error) {
-      throw new Error('ADMIN_CATEGORY_SETTINGS_READ')
+      throw Object.assign(new Error('ADMIN_CATEGORY_SETTINGS_READ'), { code: result.error.code })
     }
 
     const rows = result.data || []

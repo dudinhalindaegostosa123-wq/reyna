@@ -9,6 +9,7 @@ function fixture({rpcError=null,data={product:{id,name:'Argola'},variants:[],med
   '@/lib/admin-classification':{getAdminClassification:async()=>({categoryLabels:{},groups:[],materials:[],tags:[]})},
   '@/lib/admin-inventory':{getAdminInventory:async()=>{if(inventoryError)throw new Error(inventoryError);return new Map()}},
   './UnifiedProductEditor':{default:'Editor'},'@/components/admin/AdminCatalogSetupNotice':{default:'SetupNotice'},
+  '@/components/admin/AdminDatabaseNotice':{default:'DatabaseNotice'},
  },{Error})
  // renderer uses a deliberately empty env; storage URL is checked only after authentication.
  return {calls,view}
@@ -21,5 +22,6 @@ test('a missing editor RPC shows installation guidance rather than a not-found p
 })
 test('only a missing product is treated as a not-found record',async()=>{
  await assert.rejects(fixture({data:null}).view.render({params:{id}}),/NOT_FOUND/)
- await assert.rejects(fixture({rpcError:{code:'42501'}}).view.render({params:{id}}),/ADMIN_EDITOR_READ/)
+ const denied=await fixture({rpcError:{code:'42501'}}).view.render({params:{id}})
+ assert.equal(nodes(denied,n=>n.type==='DatabaseNotice')[0].props.error.code,'42501')
 })

@@ -31,3 +31,12 @@ O menu foi organizado em Dia a dia, Catalogo, Loja e promocoes, Configuracoes e
 Historico. Visao geral, pedidos, produtos e clientes aparecem primeiro; o
 historico da loja antiga fica por ultimo. Os destinos existentes foram mantidos,
 assim como o destaque da pagina ativa e o menu adaptado para celular.
+
+O servidor rejeita uma chave Publishable/anon em SUPABASE_SECRET_KEY antes de
+consultar dados privados. Chaves JWT antigas devem declarar service_role e, se
+trouxerem a referencia do projeto, corresponder a SUPABASE_URL. Essa verificacao
+de formato nao substitui a validacao da chave pelo Supabase. A tela de configuracao
+continua restrita a usuarios confirmados e autorizados. Nenhum valor de chave e
+exibido. As falhas de lista, busca, editor e estoque mostram apenas codigos
+SQLSTATE/PostgREST e a etapa afetada; mensagens e detalhes do banco nao vao para
+o navegador. Logs ADMIN_DATABASE_FAILURE seguem a mesma regra.

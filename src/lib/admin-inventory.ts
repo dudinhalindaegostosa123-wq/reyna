@@ -18,7 +18,7 @@ export async function getAdminInventory(
     if (['PGRST205', '42P01'].includes(error.code)) {
       throw new Error('ADMIN_INVENTORY_NOT_INSTALLED')
     }
-    throw new Error('ADMIN_INVENTORY_QUERY')
+    throw Object.assign(new Error('ADMIN_INVENTORY_QUERY'), { code: error.code })
   }
 
   return new Map(

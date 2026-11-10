@@ -4,6 +4,7 @@ import { createServerClient } from '@supabase/ssr'
 import { createClient } from '@supabase/supabase-js'
 import { cookies } from 'next/headers'
 import { redirect } from 'next/navigation'
+import { adminKeyProblem } from '@/lib/admin-diagnostics'
 
 export function adminAuth() {
   const url = process.env.SUPABASE_URL?.trim()
@@ -60,6 +61,7 @@ export async function adminDatabase() {
   const key = process.env.SUPABASE_SECRET_KEY?.trim()
 
   if (!url || !key) redirect('/admin/configuracao')
+  if (adminKeyProblem(key, url)) redirect('/admin/configuracao?motivo=chave')
 
   const db = createClient(url, key, {
     auth: {
