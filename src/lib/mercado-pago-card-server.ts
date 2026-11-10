@@ -40,7 +40,7 @@ export async function createMercadoPagoCard(
         token: input.token, payment_method_id: input.paymentMethodId,
         ...(input.issuerId ? { issuer_id: input.issuerId } : {}),
         installments: input.installments,
-        payer, description: 'Pedido Serenity Piercings', statement_descriptor: 'SERENITY',
+        payer, description: 'Pedido Lunarity', statement_descriptor: 'LUNARITY',
         external_reference: expected.orderId, metadata: { serenity_attempt_id: expected.attemptId },
         three_d_secure_mode: 'optional',
         ...(notificationUrl ? { notification_url: notificationUrl } : {}),

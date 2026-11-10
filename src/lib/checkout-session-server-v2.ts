@@ -426,13 +426,13 @@ export function checkoutSessionErrorV2(
 
   const known: Record<string, string> = {
     GUEST_TRACKING_CONFIGURATION:
-      'O acompanhamento de compras está em configuração. Fale com a Serenity.',
+      'O acompanhamento de compras está em configuração. Fale com a Lunarity.',
     GUEST_CHECKOUT_MIGRATION_REQUIRED:
-      'A compra sem cadastro está em configuração. Fale com a Serenity.',
+      'A compra sem cadastro está em configuração. Fale com a Lunarity.',
     CHECKOUT_LOGIN_REQUIRED:
       'Entre na sua conta antes de iniciar o pagamento. Seu carrinho continua salvo.',
     CHECKOUT_ACCOUNT_MISMATCH:
-      'Esta tentativa não está vinculada à conta conectada. Fale com a equipe Serenity para conferir antes de continuar.',
+      'Esta tentativa não está vinculada à conta conectada. Fale com a equipe Lunarity para conferir antes de continuar.',
     MP_CARD_INPUT_INVALID:
       'Confira os dados do cartão e do titular.',
     MP_CARD_METHOD_INVALID:
@@ -441,7 +441,7 @@ export function checkoutSessionErrorV2(
       'O pagamento com cartão está sendo configurado. Use Pix ou fale com a equipe.',
 
     MP_ENVIRONMENT_REQUIRED:
-      'O pagamento ainda está em configuração. Fale com a equipe Serenity.',
+      'O pagamento ainda está em configuração. Fale com a equipe Lunarity.',
     MP_CREDENTIALS_REQUIRED:
       'As credenciais do pagamento precisam ser conferidas pela equipe.',
     MP_PRODUCTION_DISABLED:

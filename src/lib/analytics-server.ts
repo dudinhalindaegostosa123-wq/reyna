@@ -1,7 +1,7 @@
 import 'server-only'
 import type {SupabaseClient} from '@supabase/supabase-js'
 import {analyticsContext} from './analytics-model'
-export const GA4_MEASUREMENT_ID='G-ZR73XP32BW'
+export const GA4_MEASUREMENT_ID=process.env.NEXT_PUBLIC_GA4_MEASUREMENT_ID?.trim() || ''
 export async function captureCheckoutAnalytics(db:SupabaseClient,id:string,hash:string,input:unknown){
  const context=analyticsContext(input)
  if(!context || context.measurementId!==(process.env.SERENITY_GA4_MEASUREMENT_ID || GA4_MEASUREMENT_ID))return

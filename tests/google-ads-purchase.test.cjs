@@ -16,14 +16,14 @@ function setup(options = {}) {
       setItem(key, value) { if (options.blockStorage) throw Error('denied'); stored.set(key, value) },
     },
   }
-  const fresh = () => load('src/lib/google-ads.ts', {}, {}, { window })
+  const fresh = () => load('src/lib/google-ads.ts', {}, {NEXT_PUBLIC_GOOGLE_ADS_ID:'AW-123456789',NEXT_PUBLIC_GOOGLE_ADS_PURCHASE_LABEL:'fixture_label'}, { window })
   return { api: fresh(), fresh, window, stored }
 }
 
 test('approved production order sends actual BRL total and order ID', () => {
   const { api } = setup()
   const event = api.purchaseConversion(paid())
-  assert.equal(event.send_to, 'AW-11257948716/_htiCIPG0fgbEKzUmvgp')
+  assert.equal(event.send_to, 'AW-123456789/fixture_label')
   assert.equal(event.value, 123.45)
   assert.equal(event.currency, 'BRL')
   assert.equal(event.transaction_id, orderId)
@@ -126,4 +126,13 @@ test('provider disables preview tracking and supports paid session updates', () 
   components.GoogleAdsPurchase({ session: paid() })
   effects.splice(0).forEach(effect => effect())
   assert.equal(sends, 1)
+})
+
+test('a copied store without its own advertising configuration sends no conversion',()=>{
+ const window={}
+ const api=load('src/lib/google-ads.ts',{}, {}, {window})
+ assert.equal(api.purchaseConversion(paid()),null)
+ assert.equal(api.trackPurchaseConversion(paid()),false)
+ api.initializeGoogleAds()
+ assert.equal(window.dataLayer,undefined)
 })

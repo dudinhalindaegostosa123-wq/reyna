@@ -119,4 +119,4 @@ export async function saveLabelDraft(
   }
 }
 
-// Serenity: custo e carrinho de etiquetas v1
+// Lunarity: custo e carrinho de etiquetas v1

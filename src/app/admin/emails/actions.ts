@@ -23,7 +23,7 @@ export async function refreshShipmentNotifications() {
     const secret = process.env.CRON_SECRET?.trim() || ''
     if (secret.length < 32) { reference = 'CRON_CONFIGURATION'; throw new Error('CRON_CONFIGURATION') }
     const { GET } = await import('@/app/api/cron/rastreamento/route')
-    const response = await GET(new Request('https://serenitypiercings.com.br/api/cron/rastreamento', { headers: { Authorization: `Bearer ${secret}` } }))
+    const response = await GET(new Request((process.env.NEXT_PUBLIC_SITE_URL || 'https://reyna-three.vercel.app') + '/api/cron/rastreamento', { headers: { Authorization: `Bearer ${secret}` } }))
     const result = await response.json()
     if (typeof result.error === 'string' && /^[A-Z_]{3,60}$/.test(result.error)) reference = result.error
     status = response.ok && result.skipped !== true ? result.legacy?.installed === false ? 'instalacao-pendente' : 'atualizado' : 'falha'

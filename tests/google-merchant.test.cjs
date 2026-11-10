@@ -56,6 +56,6 @@ test('feed reader uses anonymous public retail views, pagination and parent stoc
  assert.ok(calls.every(c=>!c.table.includes('wholesale')))
  assert.equal(calls.filter(c=>c.table==='product_media').length,3)
  assert.deepEqual(calls.filter(c=>c.table==='product_media').map(c=>c.parsed.searchParams.get('offset')),['0','500','1000'])
- assert.equal(await catalog.resolveLegacyProductLink(3429,new URLSearchParams('attribute_tamanho=M')),'https://serenitypiercings.com.br/produto/importado-3430?variacao=3431')
+ assert.equal(await catalog.resolveLegacyProductLink(3429,new URLSearchParams('attribute_tamanho=M')),'https://reyna-three.vercel.app/produto/importado-3430?variacao=3431')
  assert.equal(await catalog.resolveLegacyProductLink(3429,new URLSearchParams('attribute_tamanho=P')),null)
 })

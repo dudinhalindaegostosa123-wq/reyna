@@ -35,7 +35,7 @@ export function checkoutError(error:unknown):string {
   if(message.includes('INVALID_STEM'))return 'A haste precisa corresponder à variação da joia. Confira a seleção na página do produto.'
   if(/TOP_STEM_REQUIRED/.test(message))return 'Escolha a haste de 4, 6, 8 ou 10 mm dos labrets no carrinho antes de continuar.'
   if(/STOCK_RESERVED|STOCK_UNAVAILABLE|STOCK_CHANGED|PRODUCT_UNAVAILABLE|VARIANT_UNAVAILABLE|PRICE_UNAVAILABLE|INVALID_ANODIZATION/.test(message))return 'Uma peça, variação ou cor mudou de disponibilidade. Volte ao carrinho e confira as opções nas páginas dos produtos.'
-  return 'Não foi possível enviar agora. Tente novamente. Se persistir, fale com a equipe Serenity.'
+  return 'Não foi possível enviar agora. Tente novamente. Se persistir, fale com a equipe Lunarity.'
 }
 
-// Serenity: estoque e reservas v1
+// Lunarity: estoque e reservas v1

@@ -9,11 +9,11 @@ test('receipt escapes untrusted content, has no public order capability and uses
  assert.ok(!email.html.includes('<script>'))
  assert.ok(email.html.includes('&lt;script&gt;'))
  assert.ok(email.text.includes('220,30'))
- assert.ok(email.html.includes('https://serenitypiercings.com.br/minha-conta#pedidos'))
+ assert.ok(email.html.includes('https://reyna-three.vercel.app/minha-conta#pedidos'))
  assert.ok(!email.html.includes('/pagamento/'))
 })
 function worker(send,env={}) {
- return load('src/lib/order-email-server.ts',{'nodemailer':{default:{createTransport:()=>({sendMail:send})}},'./email-template':templates},{VERCEL_ENV:'production',SERENITY_EMAIL_ENABLED:'true',SMTP_USER:'contato@serenitypiercings.com.br',SMTP_PASSWORD:'test',...env})
+ return load('src/lib/order-email-server.ts',{'nodemailer':{default:{createTransport:()=>({sendMail:send})}},'./email-template':templates},{VERCEL_ENV:'production',SERENITY_EMAIL_ENABLED:'true',SMTP_FROM_EMAIL:'store@example.test',SMTP_USER:'store@example.test',SMTP_PASSWORD:'test',...env})
 }
 test('SMTP enabled only in production, claimed once and accepted delivery recorded with matching lease',async()=>{
  let calls=[],sends=[]
@@ -80,7 +80,7 @@ test('carrier problem updates describe the actual situation and link to the corr
 })
 
 test('guest receipt and status emails use the same secure tracking link, correct event wording and no forced login',()=>{
- const link='https://serenitypiercings.com.br/acompanhar#'+'a'.repeat(64)
+ const link='https://reyna-three.vercel.app/acompanhar#'+'a'.repeat(64)
  const guest={...job,payload:{...job.payload,guest_checkout:true}}
  for(const kind of ['received','paid','shipped','delivered']){
   const email=templates.orderEmail({...guest,kind},link)
@@ -110,7 +110,7 @@ test('existing SMTP worker sends guest links using a server-only capability, the
  }
  const service=load('src/lib/order-email-server.ts',{
   nodemailer:{default:{createTransport:()=>({sendMail:async message=>sent.push(message)})}},'./email-template':templates,'./guest-tracking-server':api,
- },{VERCEL_ENV:'production',SERENITY_EMAIL_ENABLED:'true',SMTP_USER:'contato@serenitypiercings.com.br',SMTP_PASSWORD:'test'})
+ },{VERCEL_ENV:'production',SERENITY_EMAIL_ENABLED:'true',SMTP_FROM_EMAIL:'store@example.test',SMTP_USER:'store@example.test',SMTP_PASSWORD:'test'})
  assert.equal((await service.drainOrderEmails(db)).sent,1)
  assert.equal(sent[0].to,job.recipient);assert.ok(sent[0].html.includes('/acompanhar#'+token))
  assert.ok(!JSON.stringify(sent).includes(key));assert.equal(finished[0].p_result,'sent')

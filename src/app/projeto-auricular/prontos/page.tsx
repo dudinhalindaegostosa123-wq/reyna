@@ -19,7 +19,7 @@ export default async function Page({ searchParams = {} }: { searchParams?: { pro
   const total = detail?.complete ? projectTotal(detail.pieces) : null
   return <main className="mx-auto max-w-6xl px-5 py-12 sm:px-8">
     <Link href="/projeto-auricular" className="text-sm text-store-muted underline">← Monte seu projeto</Link>
-    <p className="mt-8 text-xs uppercase tracking-[0.2em] text-store-accent">Curadoria Serenity</p>
+    <p className="mt-8 text-xs uppercase tracking-[0.2em] text-store-accent">Curadoria Lunarity</p>
     <h1 className="mt-3 font-display text-4xl sm:text-5xl">{selected?.title || 'Projetos prontos para inspirar'}</h1>
     {selected && detail ? <>
       <div className="mt-8 grid gap-8 md:grid-cols-2">

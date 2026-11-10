@@ -354,7 +354,7 @@ export default function CustomerRegistrationPage({ searchParams = {} }: {
       </Link>
 
       <p className="mt-6 text-[10px] uppercase tracking-[0.2em] text-store-accent">
-        Serenity Piercings
+        Lunarity
       </p>
 
       <h1 className="mt-3 text-3xl font-medium tracking-tight">

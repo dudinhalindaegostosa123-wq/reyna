@@ -29,7 +29,7 @@ export default function CheckoutReceipt({
   return (
     <main className="mx-auto max-w-2xl px-5 py-12 sm:py-16">
       <p className="text-xs uppercase tracking-[0.2em] text-store-accent">
-        Serenity Piercings
+        Lunarity
       </p>
 
       <h1 className="mt-3 text-3xl font-medium tracking-tight">
@@ -95,7 +95,7 @@ export default function CheckoutReceipt({
           >
             O pedido foi salvo, mas não foi possível liberar
             o acesso ao pagamento. Não envie outro pedido.
-            Fale com a equipe Serenity informando o número
+            Fale com a equipe Lunarity informando o número
             acima.
           </p>
         ) : null}

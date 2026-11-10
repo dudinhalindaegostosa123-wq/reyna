@@ -286,7 +286,7 @@ export default function EarProjectClient({
   }
 
   async function buildProject() {
-    if (!selectedRegions.length || building) return
+    if (!whatsapp || !selectedRegions.length || building) return
 
     setBuilding(true)
     setStatus('Buscando sugestões para seu projeto…')
@@ -344,7 +344,7 @@ export default function EarProjectClient({
   }
 
   function openWhatsapp() {
-    if (!selectedRegions.length || building) return
+    if (!whatsapp || !selectedRegions.length || building) return
 
     const text = projectMessage(
       choices,
@@ -888,7 +888,7 @@ export default function EarProjectClient({
               />
             </label>
 
-            <div className="pb-1">
+            {whatsapp && <div className="pb-1">
               <button
                 type="button"
                 onClick={openWhatsapp}
@@ -903,7 +903,7 @@ export default function EarProjectClient({
                 O WhatsApp abrirá com suas escolhas prontas
                 para revisar e enviar.
               </p>
-            </div>
+            </div>}
           </div>
         </section>
 

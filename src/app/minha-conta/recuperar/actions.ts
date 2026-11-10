@@ -11,7 +11,7 @@ export async function requestPasswordReset(_state: RecoveryState, form: FormData
   if (form.get('website')) return genericSuccess
   if (email.length > 254 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return { error: 'Informe um e-mail válido.' }
   try {
-    const origin = new URL(process.env.SERENITY_SITE_URL?.trim() || 'https://serenitypiercings.com.br')
+    const origin = new URL(process.env.NEXT_PUBLIC_SITE_URL?.trim() || 'https://reyna-three.vercel.app')
     if (origin.protocol !== 'https:' || origin.username || origin.password) throw new Error('AUTH_ORIGIN')
     if (process.env.SERENITY_LEGACY_ACTIVATION_ENABLED === 'true') {
       const { prepareLegacyRecovery } = await import('@/lib/legacy-auth-server')

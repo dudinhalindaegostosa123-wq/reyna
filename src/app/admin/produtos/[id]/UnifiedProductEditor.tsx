@@ -3,7 +3,7 @@ import VariantStockSummary from '@/components/admin/VariantStockSummary'
 import type { InventoryRow } from '@/lib/inventory'
 import type { RefObject } from 'react'
 
-// Serenity: seletores do catálogo e publicação visível
+// Lunarity: seletores do catálogo e publicação visível
 import ProductClassification from './ProductClassification'
 import type { ClassificationOptions } from './ProductClassification'
 
@@ -539,4 +539,4 @@ export default function UnifiedProductEditor({ bundle, storageUrl, isNew = false
   </form>
 }
 
-// Serenity: estoque geral das variações v2
+// Lunarity: estoque geral das variações v2

@@ -370,7 +370,7 @@ export default function PixCheckoutV2({
   } else if (session.shippingPending) {
     title = 'Frete a confirmar'
     message =
-      'Fale com a equipe Serenity para confirmar o frete antes de pagar. Ainda não há pedido registrado.'
+      'Fale com a equipe Lunarity para confirmar o frete antes de pagar. Ainda não há pedido registrado.'
   } else if (
     Date.parse(session.reservedUntil) <= now
   ) {
@@ -414,7 +414,7 @@ export default function PixCheckoutV2({
       </nav>
       <section className="mt-5 rounded-3xl border border-store-border bg-store-surface p-5 sm:p-8">
         <p className="text-xs uppercase tracking-[0.2em] text-store-accent">
-          Serenity Piercings
+          Lunarity
         </p>
 
         <h1 className="mt-3 font-display text-4xl">

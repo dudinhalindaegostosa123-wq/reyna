@@ -3,6 +3,7 @@ import SiteChrome from '@/components/layout/SiteChrome'
 import type { Metadata } from 'next'
 import { Manrope, Cormorant_Garamond } from 'next/font/google'
 import './globals.css'
+import './lunarity.css'
 
 
 
@@ -21,10 +22,10 @@ const cormorant = Cormorant_Garamond({
 })
 
 export const metadata: Metadata = {
-  metadataBase: new URL('https://serenitypiercings.com.br'),
+  metadataBase: new URL(process.env.NEXT_PUBLIC_SITE_URL || 'https://reyna-three.vercel.app'),
   title: {
-    default: 'Serenity Piercings | Titânio e Ouro 18k',
-    template: '%s | Serenity Piercings',
+    default: 'Lunarity | Titânio e Ouro 18k',
+    template: '%s | Lunarity',
   },
   description:
     'Joias para piercing em titânio e ouro 18K. Confira materiais, medidas e acabamentos de cada peça e monte seu projeto auricular. Envio para todo o Brasil.',
@@ -39,8 +40,8 @@ export const metadata: Metadata = {
   openGraph: {
     type: 'website',
     locale: 'pt_BR',
-    url: 'https://serenitypiercings.com.br',
-    siteName: 'Serenity Piercings',
+    url: process.env.NEXT_PUBLIC_SITE_URL || 'https://reyna-three.vercel.app',
+    siteName: 'Lunarity',
   },
 }
 
@@ -55,7 +56,7 @@ export default function RootLayout({
       className={`${manrope.variable} ${cormorant.variable}`}
     >
       <body>
-        <GoogleAdsProvider measurementId={process.env.SERENITY_GA4_MEASUREMENT_ID || 'G-ZR73XP32BW'} enabled={process.env.VERCEL_ENV === 'production'}>
+        <GoogleAdsProvider measurementId={process.env.NEXT_PUBLIC_GA4_MEASUREMENT_ID || null} enabled={process.env.VERCEL_ENV === 'production' && Boolean(process.env.NEXT_PUBLIC_GOOGLE_ADS_ID)}>
           <SiteChrome>{children}</SiteChrome>
         </GoogleAdsProvider>
       </body>

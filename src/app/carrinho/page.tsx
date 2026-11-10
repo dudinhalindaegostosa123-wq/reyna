@@ -156,4 +156,4 @@ export default function CartPage() {
   )
 }
 
-// Serenity: pedidos do site v1
+// Lunarity: pedidos do site v1

@@ -58,4 +58,4 @@ export default function OrderForm({customers,anodizationFee=15}:{customers:Custo
   </form>
 }
 
-// Serenity: estoque e reservas v1
+// Lunarity: estoque e reservas v1

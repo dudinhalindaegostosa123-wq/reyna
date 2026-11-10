@@ -608,7 +608,7 @@ export async function getAreaPage(
     const headers: Record<string, string> = {
       apikey: key!,
       Prefer: 'count=exact',
-      'X-Serenity-Commerce': String(commerce.version),
+      'X-Lunarity-Commerce': String(commerce.version),
     }
 
     if (privatePrices && key!.startsWith('eyJ')) {

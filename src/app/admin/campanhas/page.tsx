@@ -11,7 +11,7 @@ export const dynamic = 'force-dynamic'
 export const maxDuration = 60
 
 export const metadata = {
-  title: 'Campanhas | Administração Serenity',
+  title: 'Campanhas | Administração Lunarity',
 }
 
 interface Props {

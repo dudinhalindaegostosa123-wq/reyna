@@ -1,5 +1,7 @@
 'use client'
 
+import Brand, { LunarMark } from '@/components/brand/Brand'
+
 import { useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
@@ -13,14 +15,8 @@ import {
 } from 'lucide-react'
 import { useCartStore } from '@/lib/cart'
 import clsx from 'clsx'
-import { STORE_INFORMATION } from '@/lib/store-information'
 
-const ANNOUNCEMENTS = [
-  STORE_INFORMATION.installments,
-  'Conheça os materiais das suas joias',
-  STORE_INFORMATION.retailShipping,
-  'Titânio e ouro 18K · Confira a composição de cada peça',
-]
+const ANNOUNCEMENTS = ['Lunarity · Piercings e joias', 'Cada fase, um novo brilho', 'Explore os materiais e encontre a sua composição']
 
 interface NavLink {
   label: string
@@ -39,9 +35,8 @@ const NAV_LINKS: NavLink[] = [
     href: '/categoria/novidades',
   },
   {
-    label: 'Fale conosco',
-    href: STORE_INFORMATION.whatsapp,
-    external: true,
+    label: 'Ajuda',
+    href: '/ajuda',
   },
   {
     label: 'Conheça os materiais',
@@ -57,12 +52,10 @@ export default function Header() {
   const pathname = usePathname()
   const isHome = pathname === '/'
 
-  const headerRef = useRef<HTMLElement>(null)
   const categoryButtonRef = useRef<HTMLButtonElement>(null)
   const mobileButtonRef = useRef<HTMLButtonElement>(null)
   const mobilePanelRef = useRef<HTMLDivElement>(null)
 
-  const [headerHeight, setHeaderHeight] = useState(136)
   const [isMobile, setIsMobile] = useState(false)
   const [hovered, setHovered] = useState(false)
   const [focused, setFocused] = useState(false)
@@ -152,21 +145,6 @@ export default function Header() {
     return () => query.removeEventListener('change', update)
   }, [])
 
-  useEffect(() => {
-    const header = headerRef.current
-    if (!header) return
-
-    const measure = () => {
-      setHeaderHeight(header.getBoundingClientRect().height)
-    }
-
-    measure()
-
-    const observer = new ResizeObserver(measure)
-    observer.observe(header)
-
-    return () => observer.disconnect()
-  }, [])
 
   useEffect(() => {
     if (!isHome || !isMobile) return
@@ -392,14 +370,7 @@ export default function Header() {
                     className="serenity-announcement-separator"
                     aria-hidden="true"
                   >
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img
-                      src="/monograma-serenity.png"
-                      alt=""
-                      width={28}
-                      height={28}
-                      className="serenity-announcement-monogram"
-                    />
+                    <LunarMark className="h-5 w-5" />
                   </span>
                 </span>
               ))}
@@ -409,7 +380,6 @@ export default function Header() {
       </div>
 
       <header
-        ref={headerRef}
         onMouseEnter={() => {
           if (!isMobile) setHovered(true)
         }}
@@ -429,13 +399,12 @@ export default function Header() {
           'relative z-30 border-b',
           'transition-[background-color,color,border-color] duration-200',
           'motion-reduce:transition-none',
-          solidBackground
+          isHome
+            ? 'border-[#d6dbd5] bg-[#f5f4ef] text-[#293335]'
+            : solidBackground
             ? 'border-[#34332F] bg-[#000000] text-[#F2F1ED]'
             : 'border-transparent bg-transparent text-white'
         )}
-        style={{
-          marginBottom: isHome ? -headerHeight : undefined,
-        }}
       >
         <div className="relative mx-auto flex h-[88px] max-w-7xl items-center justify-between px-3 sm:px-4 lg:h-[92px] lg:px-8">
           <div className="flex min-w-10 items-center">
@@ -457,18 +426,10 @@ export default function Header() {
 
           <Link
             href="/"
-            aria-label="Serenity — página inicial"
+            aria-label="Lunarity — página inicial"
             className="absolute left-1/2 -translate-x-1/2"
           >
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              src="/logo-serenity.png"
-              alt="Serenity Piercings"
-              className="block h-[76px] w-[min(185px,38vw)] object-contain transition-[filter] duration-200 motion-reduce:transition-none lg:h-[88px] lg:w-[320px]"
-              style={{
-                filter: 'brightness(0) invert(1)',
-              }}
-            />
+            <Brand />
           </Link>
 
           <div className="flex items-center gap-0 sm:gap-2 lg:gap-4">
@@ -579,7 +540,7 @@ export default function Header() {
               className={clsx(
                 'whitespace-nowrap text-[12px] uppercase tracking-wide',
                 'transition-colors hover:text-[#B8986A]',
-                !solidBackground &&
+                !solidBackground && !isHome &&
                   'drop-shadow-[0_1px_3px_rgba(0,0,0,0.45)]'
               )}
             >
@@ -608,13 +569,7 @@ export default function Header() {
             className="relative flex h-full w-80 max-w-[90vw] flex-col overflow-y-auto bg-[#000000] text-[#F2F1ED]"
           >
             <div className="flex items-center justify-between border-b border-[#34332F] px-5 py-5">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                src="/logo-serenity.png"
-                alt="Serenity Piercings"
-                className="block h-14 w-[170px] object-contain"
-                style={{ filter: 'brightness(0) invert(1)' }}
-              />
+              <Brand compact />
 
               <button
                 type="button"

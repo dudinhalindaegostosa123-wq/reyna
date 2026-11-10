@@ -109,7 +109,7 @@ export default async function AdminProducts({ searchParams = {} }: Props) {
       <header className="border-b border-[#E5DED3] bg-white">
         <div className="mx-auto flex max-w-[1440px] flex-wrap items-center justify-between gap-4 px-5 py-4 sm:px-8">
           <div>
-            <p className="text-[13px] font-medium tracking-[0.18em]">SERENITY</p>
+            <p className="text-[13px] font-medium tracking-[0.18em]">LUNARITY</p>
             <p className="mt-1 text-[10px] text-[#947B57]">Administração da loja</p>
           </div>
 
@@ -136,7 +136,7 @@ export default async function AdminProducts({ searchParams = {} }: Props) {
               Seus produtos
             </h1><Link href="/admin/produtos/novo" className="mt-4 inline-flex min-h-[42px] items-center rounded-full bg-[#292621] px-5 text-xs text-white">+ Novo produto</Link>
             <p className="mt-2 text-[12px] text-[#81796C]">
-              Consulte produtos publicados e rascunhos da Serenity.
+              Consulte produtos publicados e rascunhos da Lunarity.
             </p>
           </div>
           <p className="max-w-full break-all text-[11px] text-[#81796C]">
@@ -272,4 +272,4 @@ export default async function AdminProducts({ searchParams = {} }: Props) {
   )
 }
 
-// Serenity: estoque geral das variações v2
+// Lunarity: estoque geral das variações v2

@@ -14,7 +14,7 @@ export default function CollectionProgress({ quote, compact = false }: { quote: 
     <p className="mt-3 text-xs leading-5 text-store-muted">Ouro 18K e Bioflex não participam. O benefício vale apenas para as joias elegíveis.</p>
   </aside>
   return <div className="rounded-2xl border border-store-border bg-store-canvas p-4">
-    <p className="text-[10px] uppercase tracking-[0.15em] text-store-accent">Serenity Collection</p>
+    <p className="text-[10px] uppercase tracking-[0.15em] text-store-accent">Lunarity Collection</p>
     <p className="mt-2 text-sm">{campaign.percent ? `Sua seleção tem ${campaign.percent}% de desconto progressivo.` : 'Sua próxima escolha pode tornar a seleção mais especial.'}</p>
     <div role="progressbar" aria-label="Joias para o benefício máximo" aria-valuenow={Math.min(quantity, COLLECTION_MAX_QUANTITY)} aria-valuemin={0} aria-valuemax={COLLECTION_MAX_QUANTITY} className="mt-3 h-1 overflow-hidden rounded-full bg-store-raised"><div style={{ width: `${Math.min(quantity / COLLECTION_MAX_QUANTITY, 1) * 100}%` }} className="h-full rounded-full bg-[#947B57]" /></div>
     <p className="mt-3 text-xs leading-5 text-store-muted">{collectionProgressMessage(quantity)}</p>

@@ -7,7 +7,7 @@ export const revalidate = 60
 export const metadata: Metadata = {
   title: 'Piercings Íntimos',
   description:
-    'Explore as categorias de joias para piercings íntimos femininos e masculinos da Serenity.',
+    'Explore as categorias de joias para piercings íntimos femininos e masculinos da Lunarity.',
 }
 
 const REGIONS = [

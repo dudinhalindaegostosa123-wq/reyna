@@ -29,4 +29,4 @@ export async function manageOrderStock(id:string,version:string,command:string):
   return {error:''}
 }
 
-// Serenity: estoque geral das variações v2
+// Lunarity: estoque geral das variações v2

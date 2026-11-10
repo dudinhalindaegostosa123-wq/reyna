@@ -4,7 +4,7 @@ function fixture(status=204,fail=false){
  const finishes=[],requests=[]
  const job={order_id:'12345678-1234-4234-8234-123456789abc',measurement_id:'G-ZR73XP32BW',lease_id:'lease',context:{clientId:'123.456',sessionId:'1762180000',adUserData:'denied'},occurred_at:new Date().toISOString(),payload:{subtotal:100,discount:10,shipping:5,total:95,items:[{item_id:'3431',name:'Labret',quantity:1,unit_price:100}]}}
  const db={rpc:async(name,args)=>{if(name==='serenity_analytics_claim_v1')return {data:[job]};finishes.push(args);return {data:true}}}
- const api=load('src/lib/analytics-server.ts',{'./analytics-model':model},{VERCEL_ENV:'production',SERENITY_GA4_SERVER_ENABLED:'true',SERENITY_GA4_API_SECRET:'test-secret-private-value'},{fetch:async(url,options)=>{requests.push({url,options});if(fail)throw Error('network contains a secret');return new Response(null,{status})}})
+ const api=load('src/lib/analytics-server.ts',{'./analytics-model':model},{VERCEL_ENV:'production',SERENITY_GA4_SERVER_ENABLED:'true',SERENITY_GA4_API_SECRET:'test-secret-private-value',NEXT_PUBLIC_GA4_MEASUREMENT_ID:'G-ZR73XP32BW'},{fetch:async(url,options)=>{requests.push({url,options});if(fail)throw Error('network contains a secret');return new Response(null,{status})}})
  return {api,db,job,finishes,requests}
 }
 test('worker submits one GA4 purchase with stable transaction and client IDs and matching lease',async()=>{

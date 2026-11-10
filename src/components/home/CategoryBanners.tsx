@@ -292,7 +292,7 @@ export default function CategoryBanners({ items, afterEar }: Props) {
                     hasMobileImage ? 'mb-3' : 'mb-5',
                   ].join(' ')}
                 >
-                  Serenity Piercings
+                  Lunarity
                 </p>
 
                 <h3 className="font-banner text-[clamp(2.5rem,12vw,4.5rem)] leading-[0.95] tracking-[-0.025em] md:text-[clamp(3.5rem,8vw,8rem)]">

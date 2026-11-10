@@ -9,7 +9,7 @@ export const revalidate = 60
 export const metadata: Metadata = {
   title: 'Piercings e Brincos para Orelha',
   description:
-    'Explore as regiões da orelha, encontre brincos e descubra as joias da Serenity para seu projeto auricular.',
+    'Explore as regiões da orelha, encontre brincos e descubra as joias da Lunarity para seu projeto auricular.',
 }
 
 interface EarCategory {
@@ -225,7 +225,7 @@ export default async function EarPage() {
               <p className="mt-4 max-w-sm text-[13px] leading-relaxed text-store-muted md:text-[14px]">
                 Combine regiões, cores e joias do nosso
                 catálogo. Salve suas ideias em uma mensagem
-                para a equipe Serenity.
+                para a equipe Lunarity.
               </p>
 
               <Link

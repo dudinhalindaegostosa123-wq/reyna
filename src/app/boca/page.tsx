@@ -7,7 +7,7 @@ export const revalidate = 60
 export const metadata: Metadata = {
   title: 'Piercings para Boca',
   description:
-    'Explore joias para língua, lábio superior e lábio inferior no catálogo Serenity.',
+    'Explore joias para língua, lábio superior e lábio inferior no catálogo Lunarity.',
 }
 
 const REGIONS = [

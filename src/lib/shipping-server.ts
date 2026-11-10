@@ -149,7 +149,7 @@ export async function deliveryOptions(
     options = [
       {
         id: randomUUID(),
-        company: 'Serenity',
+        company: 'Lunarity',
         service: 'Frete a confirmar com a equipe',
         amount_cents: 0,
         days: null,

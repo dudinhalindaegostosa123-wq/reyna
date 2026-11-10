@@ -8,7 +8,7 @@ export const revalidate = 60
 export const metadata: Metadata = {
   title: 'Piercings para Nariz',
   description:
-    'Explore joias para aba nasal, septo e bridge no catálogo Serenity.',
+    'Explore joias para aba nasal, septo e bridge no catálogo Lunarity.',
 }
 
 const REGIONS = [

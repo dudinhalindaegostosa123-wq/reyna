@@ -81,7 +81,7 @@ export function projectMessage(
   origin: string
 ): string {
   const lines = [
-    'Olá! Montei minhas preferências para um projeto auricular na Serenity.',
+    'Olá! Montei minhas preferências para um projeto auricular na Lunarity.',
     `Orelha: ${side}.`,
     '',
   ]

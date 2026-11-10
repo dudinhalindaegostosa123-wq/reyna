@@ -111,7 +111,7 @@ export async function labelShipmentRequest(
             'Bearer ' + token.replace(/^Bearer\s+/i, ''),
           Accept: 'application/json',
           'Content-Type': 'application/json',
-          'User-Agent': `Serenity Site (${contact})`,
+          'User-Agent': `Lunarity Site (${contact})`,
         },
         body: command === 'info'
           ? undefined

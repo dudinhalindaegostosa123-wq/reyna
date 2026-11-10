@@ -221,7 +221,7 @@ export function checkoutPaymentError(
       message
     )
   ) {
-    return 'Não foi possível acessar o pagamento deste pedido. Volte à confirmação do pedido ou fale com a equipe Serenity.'
+    return 'Não foi possível acessar o pagamento deste pedido. Volte à confirmação do pedido ou fale com a equipe Lunarity.'
   }
 
   if (message.includes('PAYMENT_SHIPPING_PENDING')) {

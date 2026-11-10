@@ -370,7 +370,7 @@ export default async function CustomerAccountPage({
       </div>
 
       <p className="mt-6 text-[10px] uppercase tracking-[0.2em] text-store-accent">
-        Serenity Piercings
+        Lunarity
       </p>
 
       <h1 className="mt-3 text-3xl font-medium tracking-tight">
@@ -471,7 +471,7 @@ export default async function CustomerAccountPage({
 
             <p className="mt-3 text-xs leading-relaxed text-store-muted">
               Para alterar e-mail ou CPF/CNPJ,
-              fale com a equipe Serenity.
+              fale com a equipe Lunarity.
             </p>
           </div>
         </section>
@@ -515,7 +515,7 @@ export default async function CustomerAccountPage({
                   Você pode continuar comprando
                   na loja. Para esclarecer
                   sua solicitação, fale com
-                  a equipe Serenity.
+                  a equipe Lunarity.
                 </p>
               )}
 
@@ -523,7 +523,7 @@ export default async function CustomerAccountPage({
                 <p className="mt-4 text-sm leading-relaxed text-store-muted">
                   As condições de atacado estão
                   suspensas. Fale com a equipe
-                  Serenity para conferir seu cadastro.
+                  Lunarity para conferir seu cadastro.
                 </p>
               )}
 
@@ -694,7 +694,7 @@ export default async function CustomerAccountPage({
                     <summary className="min-h-[44px] cursor-pointer py-3 text-xs text-store-muted underline underline-offset-4">Ver detalhes da entrega</summary>
                     {(text(shipping.company) || text(shipping.service)) && <p className="text-xs leading-6 text-store-muted">{[text(shipping.company), text(shipping.service)].filter(Boolean).join(' · ')}</p>}
                     {trackingError && <p className="mt-2 text-xs text-store-muted">O rastreio está temporariamente indisponível. Tente novamente mais tarde.</p>}
-                    {order.shipping_pending && <p className="mt-2 text-xs text-store-muted">A entrega será confirmada pela equipe Serenity.</p>}
+                    {order.shipping_pending && <p className="mt-2 text-xs text-store-muted">A entrega será confirmada pela equipe Lunarity.</p>}
                   </details>
                 </article>
               )

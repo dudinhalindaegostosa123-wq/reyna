@@ -9,7 +9,7 @@ export default async function CollectionCampaign() {
     <section aria-labelledby="collection-title" className="bg-[#FAFAF8] px-4 py-5 sm:px-8 sm:py-7">
       <div className="mx-auto max-w-7xl rounded-[24px] bg-[#F2EFE9] px-4 py-8 text-center sm:px-8 sm:py-11 md:px-12">
         <p className="text-[10px] uppercase tracking-[0.1em] text-[#81796C] sm:text-xs">
-          Serenity Piercings · Benefício exclusivo
+          Lunarity · Benefício exclusivo
         </p>
         <h2 id="collection-title" className="mt-4 text-[26px] font-normal leading-tight tracking-tight sm:text-[34px] md:text-[38px]">
           Quanto mais joias, maior o desconto.

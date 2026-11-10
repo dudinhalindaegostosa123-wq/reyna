@@ -9,7 +9,7 @@ import BannerEditor from './BannerEditor'
 export const dynamic = 'force-dynamic'
 
 export const metadata = {
-  title: 'Banners | Administração Serenity',
+  title: 'Banners | Administração Lunarity',
 }
 
 interface Props {

@@ -132,7 +132,7 @@ export default function AdminNavigation() {
           className="inline-flex min-h-[44px] flex-col justify-center"
         >
           <span className="text-sm font-medium tracking-[0.2em]">
-            SERENITY
+            LUNARITY
           </span>
 
           <span className="mt-1 text-xs text-[#81796C]">

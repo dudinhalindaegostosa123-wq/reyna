@@ -634,7 +634,7 @@ export default function ProductPageClient({
               )}
             </div>
 
-            <aside className="mt-5 border-t border-store-border pt-4 text-xs leading-6 text-store-muted" aria-label="Entrega e ajuda para escolher"><p>Frete e prazo de entrega calculados no checkout.</p><a href={`${STORE_INFORMATION.whatsapp}?text=${encodeURIComponent('Olá! Preciso de ajuda com as medidas e o encaixe da peça: '+product.name)}`} target="_blank" rel="noopener noreferrer" className="inline-flex min-h-[44px] items-center underline underline-offset-4">Dúvidas sobre medidas ou encaixe? Fale com a Serenity ↗</a><Link href="/ajuda" className="block w-fit py-2 underline underline-offset-4">Entrega, pagamento e dúvidas frequentes</Link></aside>
+            <aside className="mt-5 border-t border-store-border pt-4 text-xs leading-6 text-store-muted" aria-label="Entrega e ajuda para escolher"><p>Frete e prazo de entrega calculados no checkout.</p>{STORE_INFORMATION.whatsapp && <a href={`${STORE_INFORMATION.whatsapp}?text=${encodeURIComponent('Olá! Preciso de ajuda com as medidas e o encaixe da peça: '+product.name)}`} target="_blank" rel="noopener noreferrer" className="inline-flex min-h-[44px] items-center underline underline-offset-4">Dúvidas sobre medidas ou encaixe? Fale com a Lunarity ↗</a>}<Link href="/ajuda" className="block w-fit py-2 underline underline-offset-4">Entrega, pagamento e dúvidas frequentes</Link></aside>
             {product.youtubeShortId && (
               <details className="group mt-6 border-y border-store-border">
                 <summary className="flex min-h-[52px] cursor-pointer list-none items-center justify-between gap-3 py-3 text-xs font-medium [&::-webkit-details-marker]:hidden">

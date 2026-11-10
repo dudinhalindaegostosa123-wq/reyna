@@ -2,7 +2,7 @@ const {test}=require('node:test'),assert=require('node:assert/strict')
 const {renderer,nodes}=require('./helpers/render.cjs'),{load}=require('./helpers/load.cjs')
 const nextTick=()=>new Promise(resolve=>setImmediate(resolve))
 test('floating collection card can be minimized and reopened, uses eligible quote count, and hides for wholesale and open drawer',async()=>{
- let state={items:[{quantity:10}],isOpen:false},quote={progressive:{quantity:2},pricing_mode:'retail'}
+ let state={items:[{quantity:10}],isOpen:false},quote={progressive:{quantity:4},pricing_mode:'retail'}
  const view=renderer('src/components/cart/CollectionNotice.tsx',{
   'next/link':{default:'Link'},'next/navigation':{usePathname:()=>'/categoria/todos'},
   '@/lib/cart':{useCartStore:fn=>fn(state)},'./useCollectionQuote':{useCollectionQuote:()=>quote},
@@ -21,8 +21,8 @@ test('floating collection card can be minimized and reopened, uses eligible quot
 })
 test('floating WhatsApp uses the confirmed store contact and disappears when cart is open',()=>{
  let state={isOpen:false}
- const view=renderer('src/components/layout/WhatsAppButton.tsx',{'@/lib/cart':{useCartStore:fn=>fn(state)},'@/lib/store-information':load('src/lib/store-information.ts')})
- const button=view.render({});assert.equal(button.props.href,'https://wa.me/5515981679400');assert.equal(button.props.target,'_blank');assert.ok(button.props.className.includes('fixed'));assert.ok(button.props['aria-label'].includes('WhatsApp'))
+ const view=renderer('src/components/layout/WhatsAppButton.tsx',{'@/lib/cart':{useCartStore:fn=>fn(state)},'@/lib/store-information':load('src/lib/store-information.ts',{}, {NEXT_PUBLIC_WHATSAPP_URL:'https://wa.me/5500000000000'})})
+ const button=view.render({});assert.equal(button.props.href,'https://wa.me/5500000000000');assert.equal(button.props.target,'_blank');assert.ok(button.props.className.includes('fixed'));assert.ok(button.props['aria-label'].includes('WhatsApp'))
  state.isOpen=true;assert.equal(view.render({}),null)
 })
 test('storefront floats stay out of administration, checkout and payment',()=>{
@@ -33,4 +33,9 @@ test('storefront floats stay out of administration, checkout and payment',()=>{
  })
  assert.equal(nodes(view.render({children:'fixture'}),n=>n.type==='WhatsAppButton'||n.type==='CollectionNotice').length,2)
  for(path of ['/admin','/admin/pedidos','/checkout','/pagamento/pedido'])assert.equal(nodes(view.render({children:'fixture'}),n=>n.type==='WhatsAppButton'||n.type==='CollectionNotice').length,0)
+})
+
+test('floating WhatsApp is absent until Lunarity has its own contact',()=>{
+ const view=renderer('src/components/layout/WhatsAppButton.tsx',{'@/lib/cart':{useCartStore:fn=>fn({isOpen:false})},'@/lib/store-information':load('src/lib/store-information.ts')})
+ assert.equal(view.render({}),null)
 })

@@ -1,6 +1,6 @@
 import { plainText, type Product, type ImportedVariation } from './data'
 
-export const MERCHANT_ORIGIN = 'https://serenitypiercings.com.br'
+export const MERCHANT_ORIGIN = process.env.NEXT_PUBLIC_SITE_URL || 'https://reyna-three.vercel.app'
 export function merchantLink(product: Product, variation?: string): string {
   const url = new URL(`/produto/${encodeURIComponent(product.slug)}`, MERCHANT_ORIGIN)
   if (variation) url.searchParams.set('variacao', variation)
@@ -42,7 +42,7 @@ export function merchantXml(products: Product[]): string {
     }
   }
   if (!items.length) throw new Error('MERCHANT_EMPTY_CATALOG')
-  return `<?xml version="1.0" encoding="UTF-8"?><rss version="2.0" xmlns:g="http://base.google.com/ns/1.0"><channel><title>Serenity Piercings</title><link>${MERCHANT_ORIGIN}</link><description>Catálogo de joias Serenity Piercings</description>${items.join('')}</channel></rss>`
+  return `<?xml version="1.0" encoding="UTF-8"?><rss version="2.0" xmlns:g="http://base.google.com/ns/1.0"><channel><title>Lunarity</title><link>${MERCHANT_ORIGIN}</link><description>Catálogo de joias Lunarity</description>${items.join('')}</channel></rss>`
 }
 export function productStructuredData(product: Product) {
   const choices = product.variations === undefined ? [null] : product.variations
@@ -56,7 +56,7 @@ export function productStructuredData(product: Product) {
       price:(choice ? choice.price : product.price).toFixed(2),
       availability:`https://schema.org/${(choice ? choice.inStock : product.inStock) ? 'InStock' : 'OutOfStock'}`,
       itemCondition:'https://schema.org/NewCondition',
-      seller:{ '@type':'Organization',name:'Serenity Piercings' },
+      seller:{ '@type':'Organization',name:'Lunarity' },
     })),
   }
 }

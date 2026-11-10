@@ -240,7 +240,7 @@ async function read<T>(
   const commerce = ['store_catalog','serenity_wholesale_catalog','serenity_store_variants','serenity_wholesale_variants'].includes(table) && /price|^\*$/.test(query.get('select') || '*') ? await getCommercePolicy() : DEFAULT_COMMERCE_POLICY
   const headers: Record<string, string> = {
     apikey: key,
-    'X-Serenity-Commerce': String(commerce.version),
+    'X-Lunarity-Commerce': String(commerce.version),
   }
 
   if (countExact) {
@@ -1291,7 +1291,7 @@ export async function resolveLegacyProductLink(wooId: number, parameters: URLSea
   const base = await read<Row>('store_catalog', {select:'database_id,slug,product_type',woo_id:`eq.${wooId}`,limit:'1'})
   const row = base.rows[0]
   if (!row) return null
-  const destination = new URL(`/produto/${encodeURIComponent(row.slug)}`, 'https://serenitypiercings.com.br')
+  const destination = new URL(`/produto/${encodeURIComponent(row.slug)}`, process.env.NEXT_PUBLIC_SITE_URL || 'https://reyna-three.vercel.app')
   if (Array.from(parameters.keys()).some(key => key.startsWith('attribute_'))) {
     if (row.product_type !== 'variable') return null
     const variants = await readAll<VariantRow>('serenity_store_variants', 'id,woo_id,attributes', {product_id:`eq.${row.database_id}`,enabled:'eq.true'})

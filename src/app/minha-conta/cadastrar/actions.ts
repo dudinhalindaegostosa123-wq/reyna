@@ -134,7 +134,7 @@ export async function completeCustomerRegistration(): Promise<{
       return {
         error: existing.data.customer_id
           ? ''
-          : 'Seu cadastro precisa de conferência. Fale com a equipe Serenity.',
+          : 'Seu cadastro precisa de conferência. Fale com a equipe Lunarity.',
       }
     }
 
@@ -148,7 +148,7 @@ export async function completeCustomerRegistration(): Promise<{
     ) {
       return {
         error:
-          'Não foi possível recuperar seus dados de cadastro. Fale com a equipe Serenity.',
+          'Não foi possível recuperar seus dados de cadastro. Fale com a equipe Lunarity.',
       }
     }
 
@@ -159,7 +159,7 @@ export async function completeCustomerRegistration(): Promise<{
     if (!checked.profile) {
       return {
         error:
-          'Confira seus dados de cadastro com a equipe Serenity.',
+          'Confira seus dados de cadastro com a equipe Lunarity.',
       }
     }
 
@@ -211,7 +211,7 @@ export async function completeCustomerRegistration(): Promise<{
     ) {
       return {
         error:
-          'Não foi possível concluir seu cadastro. Tente entrar novamente ou fale com a equipe Serenity.',
+          'Não foi possível concluir seu cadastro. Tente entrar novamente ou fale com a equipe Lunarity.',
       }
     }
 
@@ -309,7 +309,7 @@ export async function registerCustomer(
   try {
     const site = new URL(
       process.env.SERENITY_SITE_URL?.trim() ||
-      'https://serenitypiercings.com.br'
+      process.env.NEXT_PUBLIC_SITE_URL || 'https://reyna-three.vercel.app'
     )
 
     if (
@@ -424,7 +424,7 @@ export async function finishImportedProfile(_previous: RegisterState, form: Form
     if (error || !data.user?.email_confirmed_at) return { error: 'Entre com seu e-mail confirmado para continuar.' }
     const { legacyProfile } = await import('@/lib/legacy-history-server')
     const imported = await legacyProfile(auth)
-    if (!imported.eligible) return { error: 'Não foi possível validar este cadastro antigo. Fale com a equipe Serenity.' }
+    if (!imported.eligible) return { error: 'Não foi possível validar este cadastro antigo. Fale com a equipe Lunarity.' }
     if (imported.needs_profile) {
       const saved = await auth.auth.updateUser({ data: { ...data.user.user_metadata, serenity_registration: checked.profile } })
       if (saved.error) return { error: 'Não foi possível salvar agora. Tente novamente.' }

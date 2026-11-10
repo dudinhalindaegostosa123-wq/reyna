@@ -3,11 +3,12 @@ import Image from 'next/image'
 import Link from 'next/link'
 import { publishedProjects } from '@/lib/ready-project-server'
 import { storageUrl } from '@/lib/catalog-server'
+import { STORE_INFORMATION } from '@/lib/store-information'
 import EarProjectClient from './EarProjectClient'
 
 export const metadata: Metadata = {
   title: 'Monte seu projeto auricular',
-  description: 'Escolha regiões, cores e estilos e monte suas preferências com joias da Serenity.',
+  description: 'Escolha regiões, cores e estilos e monte suas preferências com joias da Lunarity.',
 }
 
 export const dynamic = 'force-dynamic'
@@ -18,7 +19,7 @@ export default async function EarProjectPage() {
   return <>
     {projects.length > 0 && <section className="bg-store-raised px-5 py-12 sm:px-8">
       <div className="mx-auto max-w-6xl">
-        <p className="text-xs uppercase tracking-[0.2em] text-store-accent">Curadoria Serenity</p>
+        <p className="text-xs uppercase tracking-[0.2em] text-store-accent">Curadoria Lunarity</p>
         <h1 className="mt-3 font-display text-4xl">Projetos prontos</h1>
         <p className="mt-4 max-w-2xl text-sm leading-relaxed text-store-muted">Inspire-se nas nossas composições ou compre todas as joias do seu projeto favorito. O valor é a soma das peças escolhidas.</p>
         <div className="mt-7 grid gap-6 sm:grid-cols-2 lg:grid-cols-3">{projects.slice(0, 6).map(project => <Link key={project.id} href={`/projeto-auricular/prontos?projeto=${project.id}`} className="overflow-hidden rounded-3xl border border-store-border bg-store-surface">
@@ -29,6 +30,6 @@ export default async function EarProjectPage() {
         <a href="#montar-projeto" className="ml-6 mt-6 inline-block text-sm underline">Montar meu projeto ↓</a>
       </div>
     </section>}
-    <div id="montar-projeto"><EarProjectClient whatsapp="5515981679400" /></div>
+    <div id="montar-projeto"><EarProjectClient whatsapp={STORE_INFORMATION.whatsapp.replace(/^https:\/\/wa.me\//, '')} /></div>
   </>
 }

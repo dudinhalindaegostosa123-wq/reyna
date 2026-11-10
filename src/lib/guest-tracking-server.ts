@@ -52,5 +52,5 @@ export async function guestEmailLink(db:SupabaseClient, id:string):Promise<strin
   if(saved.error || !saved.data || saved.data.revoked || Date.parse(saved.data.expires_at)<=Date.now()) throw new Error('GUEST_EMAIL_LINK_UNAVAILABLE')
   const token=guestToken(id),hash=guestTokenHash(token)
   if(typeof saved.data.token_hash!=='string' || !TOKEN.test(saved.data.token_hash) || !timingSafeEqual(Buffer.from(hash),Buffer.from(saved.data.token_hash))) throw new Error('GUEST_EMAIL_LINK_UNAVAILABLE')
-  return 'https://serenitypiercings.com.br/acompanhar#'+token
+  return (process.env.NEXT_PUBLIC_SITE_URL || 'https://reyna-three.vercel.app')+'/acompanhar#'+token
 }

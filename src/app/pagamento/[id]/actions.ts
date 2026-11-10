@@ -6,6 +6,6 @@ export async function startTestPix(orderId: string, attemptId: string) {
   void attemptId
   return {
     ok: false,
-    message: 'Este fluxo de pagamento foi substituído. Consulte a equipe Serenity antes de iniciar outra tentativa.',
+    message: 'Este fluxo de pagamento foi substituído. Consulte a equipe Lunarity antes de iniciar outra tentativa.',
   }
 }

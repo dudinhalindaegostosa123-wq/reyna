@@ -103,7 +103,7 @@ export default function InstagramGrid() {
               id="instagram-title"
               className="font-display text-2xl font-medium tracking-[-0.025em] md:text-3xl"
             >
-              Acompanhe a Serenity
+              Acompanhe a Lunarity
             </h2>
 
             <a
@@ -153,7 +153,7 @@ export default function InstagramGrid() {
           ref={trackRef}
           id="instagram-posts"
           role="region"
-          aria-label="Publicações do Instagram da Serenity"
+          aria-label="Publicações do Instagram da Lunarity"
           tabIndex={0}
           className="serenity-instagram-track serenity-instagram-grid flex snap-x snap-mandatory items-start gap-4 overflow-x-auto pb-3"
         >
@@ -189,7 +189,7 @@ export default function InstagramGrid() {
                         rel="noopener noreferrer"
                         className="flex min-h-[420px] items-center justify-center px-6 text-center text-[12px] text-[color:var(--home-muted,#746D63)]"
                       >
-                        Ver publicação da Serenity no
+                        Ver publicação da Lunarity no
                         Instagram
                       </a>
                     </blockquote>
@@ -212,7 +212,7 @@ export default function InstagramGrid() {
                   href={url}
                   target="_blank"
                   rel="noopener noreferrer"
-                  aria-label={`Abrir publicação ${index + 1} da Serenity no Instagram`}
+                  aria-label={`Abrir publicação ${index + 1} da Lunarity no Instagram`}
                   className="mt-2 inline-block text-[10px] text-[color:var(--home-muted,#817B72)] underline underline-offset-4"
                 >
                   Ver no Instagram ↗

@@ -6,8 +6,10 @@ import { orderEmail, type EmailJob } from './email-template'
 export function emailEnabled() {
   return process.env.VERCEL_ENV === 'production' && process.env.SERENITY_EMAIL_ENABLED === 'true'
 }
+const sender = () => process.env.SMTP_FROM_EMAIL?.trim() || ''
+
 export function emailConfigured() {
-  return Boolean(process.env.SMTP_USER?.trim() === 'contato@serenitypiercings.com.br' && process.env.SMTP_PASSWORD)
+  return Boolean(/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(sender()) && process.env.SMTP_USER?.trim() && process.env.SMTP_PASSWORD)
 }
 function transport() {
   if (!emailConfigured()) throw new Error('EMAIL_CONFIGURATION')
@@ -51,9 +53,9 @@ export async function drainOrderEmails(db: SupabaseClient, orderId?: string, lim
       }
       const message = orderEmail(job,trackingLink)
       await smtp.sendMail({
-        from: { name: 'Serenity Piercings', address: 'contato@serenitypiercings.com.br' },
-        replyTo: 'contato@serenitypiercings.com.br', to: job.recipient,
-        messageId: `<serenity-${job.id}@serenitypiercings.com.br>`, ...message,
+        from: { name: 'Lunarity', address: sender() },
+        replyTo: sender(), to: job.recipient,
+        messageId: `<lunarity-${job.id}@${sender().split('@')[1]}>`, ...message,
       })
       sent++
     } catch (error) {
@@ -77,12 +79,12 @@ export async function safeDrainOrderEmails(db: SupabaseClient, orderId?: string)
 export async function sendEmailConfigurationTest() {
   if (!emailEnabled()) throw new Error('EMAIL_DISABLED')
   // Destino fixo: o teste nunca permite usar o painel como relay arbitrário.
-  await transport().sendMail({ from: { name: 'Serenity Piercings', address: 'contato@serenitypiercings.com.br' }, to: 'contato@serenitypiercings.com.br',
-    subject: 'Teste de envio · Serenity Piercings', text: 'A conexão SMTP da Serenity foi validada. Este é um teste de configuração, não um aviso de pedido.' })
+  await transport().sendMail({ from: { name: 'Lunarity', address: sender() }, to: sender(),
+    subject: 'Teste de envio · Lunarity', text: 'A conexão SMTP da Lunarity foi validada. Este é um teste de configuração, não um aviso de pedido.' })
 }
 
 export async function sendRestockEmail(recipient:string,id:string,message:{subject:string;text:string;html:string}){
  if(!emailEnabled())throw Error('EMAIL_DISABLED')
  if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(recipient) || /[\r\n]/.test(recipient))throw Error('EMAIL_RECIPIENT')
- await transport().sendMail({from:{name:'Serenity Piercings',address:'contato@serenitypiercings.com.br'},replyTo:'contato@serenitypiercings.com.br',to:recipient,messageId:`<serenity-restock-${id}@serenitypiercings.com.br>`,...message})
+ await transport().sendMail({from:{name:'Lunarity',address:sender()},replyTo:sender(),to:recipient,messageId:`<lunarity-restock-${id}@${sender().split('@')[1]}>`,...message})
 }

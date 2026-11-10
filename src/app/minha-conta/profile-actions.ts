@@ -134,7 +134,7 @@ export async function saveCustomerProfile(
         : message.includes(
             'CUSTOMER_PROFILE_UNAVAILABLE'
           )
-          ? 'Não foi possível localizar seu cadastro. Fale com a equipe Serenity.'
+          ? 'Não foi possível localizar seu cadastro. Fale com a equipe Lunarity.'
           : 'Não foi possível confirmar o salvamento. Atualize a página antes de tentar novamente.'
 
       return {

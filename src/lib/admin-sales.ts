@@ -13,4 +13,4 @@ export function saleAmount(value: unknown): number {
 }
 export const saleUuid = (value: unknown): value is string => typeof value === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value)
 
-// Serenity: pedidos do site v1
+// Lunarity: pedidos do site v1

@@ -547,7 +547,7 @@ export function labelPayload(
       ? { agency: Number(context.agency) }
       : {}),
     options: {
-      platform: 'Serenity Site',
+      platform: 'Lunarity Site',
       reminder: 'Pedido #' + String(context.orderNumber),
       insurance_value: Number(context.insurance),
       receipt: false,
@@ -606,7 +606,7 @@ export async function labelCartRequest(
             'Bearer ' + token.replace(/^Bearer\s+/i, ''),
           Accept: 'application/json',
           'Content-Type': 'application/json',
-          'User-Agent': `Serenity Site (${contact})`,
+          'User-Agent': `Lunarity Site (${contact})`,
         },
         body:
           method === 'POST'

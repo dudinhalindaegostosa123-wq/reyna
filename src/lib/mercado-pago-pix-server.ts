@@ -88,7 +88,7 @@ export async function createMercadoPagoPix(
         body: JSON.stringify({
           transaction_amount:
             expected.amountCents / 100,
-          description: 'Pedido Serenity Piercings',
+          description: 'Pedido Lunarity',
           ...(configuration.environment === 'production'
             ? { notification_url: mercadoPagoConfig().notificationUrl } : {}),
           payment_method_id: 'pix',

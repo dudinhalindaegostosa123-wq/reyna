@@ -1031,7 +1031,7 @@ export default function CheckoutClient() {
     return (
       <main className="mx-auto max-w-2xl px-5 py-12 sm:py-16">
         <p className="text-xs uppercase tracking-[0.2em] text-store-accent">
-          Serenity Piercings
+          Lunarity
         </p>
 
         <h1 className="mt-3 text-3xl font-medium">
@@ -1120,7 +1120,7 @@ export default function CheckoutClient() {
       )}
 
       {(quote?.progressive?.discount_cents || 0) > 0 && <div className="mt-3 flex justify-between gap-3 text-sm text-store-accent">
-        <span>Serenity Collection · {quote?.progressive?.percent}%</span>
+        <span>Lunarity Collection · {quote?.progressive?.percent}%</span>
         <strong>− {formatPrice((quote?.progressive?.discount_cents || 0) / 100)}</strong>
       </div>}
 

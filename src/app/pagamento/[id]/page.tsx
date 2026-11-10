@@ -81,7 +81,7 @@ export default async function PaymentPage({
           className="mt-4 text-sm leading-7"
         >
           {message} Se você já tentou pagar,
-          fale com a equipe Serenity antes de
+          fale com a equipe Lunarity antes de
           iniciar outra tentativa.
         </p>
 

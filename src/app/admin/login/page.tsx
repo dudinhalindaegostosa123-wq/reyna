@@ -1,4 +1,4 @@
-import Image from 'next/image'
+import Brand from '@/components/brand/Brand'
 import Link from 'next/link'
 import { redirect } from 'next/navigation'
 import { adminAuth, allowedAdmin } from '@/lib/admin-auth'
@@ -25,20 +25,14 @@ export default async function AdminLogin({ searchParams }: Props) {
   return (
     <main className="flex min-h-screen items-center justify-center px-5 py-12">
       <div className="w-full max-w-[420px]">
-        <Image
-          src="/logo-serenity.png"
-          width={210}
-          height={72}
-          alt="Serenity Piercings"
-          className="mx-auto mb-10 h-auto w-[190px]"
-        />
+        <div className="mb-10 flex justify-center text-[#293335]"><Brand /></div>
 
         <div className="rounded-[28px] border border-[#E5DED3] bg-white p-6 shadow-[0_12px_55px_rgba(60,45,22,0.04)] sm:p-8">
           <p className="text-[10px] uppercase tracking-[0.2em] text-[#947B57]">
             Área administrativa
           </p>
           <h1 className="mt-2 text-[26px] font-medium tracking-[-0.035em]">
-            Bem-vindo à Serenity
+            Bem-vindo à Lunarity
           </h1>
           <p className="mt-3 text-[13px] leading-6 text-[#81796C]">
             Entre com sua conta autorizada para acessar o catálogo.

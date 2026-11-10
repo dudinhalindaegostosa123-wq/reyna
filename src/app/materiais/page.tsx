@@ -18,13 +18,13 @@ const faqs = [
   { question: 'Titânio dourado é a mesma coisa que ouro 18K?', answer: 'Não. Uma joia de titânio com acabamento dourado tem uma base diferente da joia de ouro 18K maciço. A cor também pode resultar de processos distintos, como anodização ou revestimento. Confira a composição e a descrição da peça.' },
   { question: 'PVD black e titânio natural são o mesmo acabamento?', answer: 'Não. O titânio natural apresenta o acabamento metálico da peça, enquanto PVD black indica um revestimento escuro aplicado por um processo de deposição. A indicação de uso e os cuidados dependem da especificação desse revestimento.' },
   { question: 'Um material pode garantir que não haverá alergia?', answer: 'Nenhum material garante ausência de reações para todas as pessoas. Confira a composição da joia e informe sensibilidades conhecidas ao seu profissional. Em caso de dor persistente, inchaço ou outros sinais de alteração, procure avaliação profissional.' },
-  { question: 'Como saber a composição da joia que quero comprar?', answer: 'Consulte o campo de material e a descrição do produto, incluindo informações sobre revestimento, medidas e especificação. Se houver dúvida sobre a liga ou a documentação, fale com a equipe Serenity antes da compra.' },
+  { question: 'Como saber a composição da joia que quero comprar?', answer: 'Consulte o campo de material e a descrição do produto, incluindo informações sobre revestimento, medidas e especificação. Se houver dúvida sobre a liga ou a documentação, fale com a equipe Lunarity antes da compra.' },
 ]
 
 export default function MaterialsPage() {
   const breadcrumbs = { '@context': 'https://schema.org', '@type': 'BreadcrumbList', itemListElement: [
-    { '@type': 'ListItem', position: 1, name: 'Início', item: 'https://serenitypiercings.com.br' },
-    { '@type': 'ListItem', position: 2, name: 'Materiais', item: 'https://serenitypiercings.com.br/materiais' },
+    { '@type': 'ListItem', position: 1, name: 'Início', item: process.env.NEXT_PUBLIC_SITE_URL || 'https://reyna-three.vercel.app' },
+    { '@type': 'ListItem', position: 2, name: 'Materiais', item: (process.env.NEXT_PUBLIC_SITE_URL || 'https://reyna-three.vercel.app') + '/materiais' },
   ] }
   return (
     <main className="mx-auto max-w-5xl px-4 py-10 text-store-text sm:px-6 md:py-16">

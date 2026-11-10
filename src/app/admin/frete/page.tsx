@@ -10,7 +10,7 @@ import ShippingDashboard from './ShippingDashboard'
 export const dynamic = 'force-dynamic'
 
 export const metadata = {
-  title: 'Envios | Administração Serenity',
+  title: 'Envios | Administração Lunarity',
 }
 
 export default async function ShippingPage() {

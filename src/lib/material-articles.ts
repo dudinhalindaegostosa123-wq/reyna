@@ -36,7 +36,7 @@ export const MATERIAL_ARTICLES:MaterialArticle[] = [
         'Como acontece com qualquer superfície metálica, atritos muito intensos ou riscos profundos podem danificar o acabamento e revelar a cor natural do titânio por baixo. Isso é diferente do descascamento característico de uma pintura comum.',
       ]},
       {title:'Tecnologia, beleza e qualidade', paragraphs:[
-        'Na Serenity Piercings, unimos materiais de excelência e tecnologias avançadas para oferecer joias que combinam conforto, sofisticação e durabilidade.',
+        'Na Lunarity, unimos materiais de excelência e tecnologias avançadas para oferecer joias que combinam conforto, sofisticação e durabilidade.',
         'A beleza do ouro 24K. A excelência do titânio. A qualidade que você merece.',
       ]},
     ],

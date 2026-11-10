@@ -1,5 +1,5 @@
-export const GOOGLE_ADS_ID = 'AW-11257948716'
-export const GOOGLE_ADS_PURCHASE = GOOGLE_ADS_ID + '/_htiCIPG0fgbEKzUmvgp'
+export const GOOGLE_ADS_ID = process.env.NEXT_PUBLIC_GOOGLE_ADS_ID?.trim() || ''
+export const GOOGLE_ADS_PURCHASE = GOOGLE_ADS_ID && process.env.NEXT_PUBLIC_GOOGLE_ADS_PURCHASE_LABEL ? GOOGLE_ADS_ID + '/' + process.env.NEXT_PUBLIC_GOOGLE_ADS_PURCHASE_LABEL : ''
 
 type GoogleAdsWindow = Window & {
   dataLayer?: unknown[]
@@ -10,7 +10,7 @@ let initialized = false
 const queuedOrders = new Set<string>()
 
 export function initializeGoogleAds() {
-  if (typeof window === 'undefined') return
+  if (typeof window === 'undefined' || !/^AW-[0-9]+$/.test(GOOGLE_ADS_ID)) return
   const target = window as GoogleAdsWindow
   target.dataLayer = target.dataLayer || []
   target.gtag = target.gtag || function () {
@@ -36,7 +36,7 @@ export interface PaidCheckout {
 
 export function purchaseConversion(session: PaidCheckout) {
   if (
-    session.environment !== 'production' ||
+    !GOOGLE_ADS_PURCHASE || session.environment !== 'production' ||
     session.state !== 'converted' ||
     !session.orderId ||
     !/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i.test(session.orderId) ||
