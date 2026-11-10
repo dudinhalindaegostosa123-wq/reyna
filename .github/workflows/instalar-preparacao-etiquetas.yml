@@ -1,0 +1,768 @@
+name: Instalar preparacao de etiquetas
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: instalar-preparacao-etiquetas
+  cancel-in-progress: false
+
+jobs:
+  instalar:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Instalar remetente e rascunhos
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          root = Path.cwd()
+
+          files = {
+          'src/app/admin/frete/label-actions.ts': r''''use server'
+
+          import { revalidatePath } from 'next/cache'
+          import { adminDatabase } from '@/lib/admin-auth'
+          import { saleUuid } from '@/lib/admin-sales'
+          import { readLabelFields } from '@/lib/label-draft'
+          import type { SenderData, LabelData } from '@/lib/label-draft'
+          import { loadLabelSender, loadLabelPreparation } from '@/lib/label-draft-server'
+
+          function version(data: FormData, key: string, minimum = 0) {
+            const raw = String(data.get(key) || '')
+            if (!/^\d{1,15}$/.test(raw) || Number(raw) < minimum) {
+              throw new Error('Atualize a página antes de salvar.')
+            }
+            return Number(raw)
+          }
+
+          function errorMessage(error: unknown) {
+            const message = error && typeof error === 'object' && 'message' in error
+              ? String(error.message)
+              : ''
+
+            if (message.includes('LABEL_STALE')) {
+              return 'O pedido, remetente ou rascunho mudou em outra tela. Atualize a página e confira antes de salvar.'
+            }
+            if (message.includes('LABEL_ORDER_STATUS')) {
+              return 'Pedidos cancelados ou estornados não podem receber uma preparação de envio.'
+            }
+            return 'Não foi possível salvar os dados do envio. Tente novamente; se persistir, confira se o SQL desta etapa foi executado.'
+          }
+
+          export async function saveLabelSender(
+            data: FormData
+          ): Promise<{ error: string; sender?: SenderData }> {
+            const { db, user } = await adminDatabase()
+            let fields: ReturnType<typeof readLabelFields>, expected: number
+
+            try {
+              fields = readLabelFields(data, 'sender')
+              expected = version(data, 'version', 1)
+            } catch (error) {
+              return { error: error instanceof Error ? error.message : 'Confira os campos.' }
+            }
+
+            try {
+              const { error } = await db.rpc('serenity_label_save_sender', {
+                p_fields: fields,
+                p_version: expected,
+                p_actor: user.id,
+              })
+              if (error) throw error
+
+              const { data: config, error: configError } = await db
+                .from('serenity_shipping_settings')
+                .select('origin').eq('singleton', true).single()
+
+              if (configError) throw configError
+
+              const sender = await loadLabelSender(db, config.origin)
+              revalidatePath('/admin/frete')
+              revalidatePath('/admin/pedidos/[id]', 'page')
+
+              return { error: '', sender }
+            } catch (error) {
+              return { error: errorMessage(error) }
+            }
+          }
+
+          export async function saveLabelDraft(
+            id: string,
+            data: FormData
+          ): Promise<{ error: string; draft?: LabelData }> {
+            const { db, user } = await adminDatabase()
+            if (!saleUuid(id)) return { error: 'Pedido inválido.' }
+
+            let fields: ReturnType<typeof readLabelFields>
+            let expected: number, senderVersion: number, orderVersion: string
+
+            try {
+              fields = readLabelFields(data, 'draft')
+              expected = version(data, 'version')
+              senderVersion = version(data, 'sender_version', 1)
+              orderVersion = String(data.get('order_version') || '')
+
+              if (orderVersion.length > 50 || !Number.isFinite(Date.parse(orderVersion))) {
+                throw new Error('Atualize a página antes de salvar.')
+              }
+            } catch (error) {
+              return { error: error instanceof Error ? error.message : 'Confira os dados.' }
+            }
+
+            try {
+              const { error } = await db.rpc('serenity_label_save_draft', {
+                p_order: id,
+                p_fields: fields,
+                p_version: expected,
+                p_order_version: orderVersion,
+                p_sender_version: senderVersion,
+                p_actor: user.id,
+              })
+              if (error) throw error
+
+              const { data: order, error: orderError } = await db
+                .from('serenity_orders').select('*').eq('id', id).single()
+
+              if (orderError) throw orderError
+
+              const draft = await loadLabelPreparation(db, order)
+              revalidatePath('/admin/pedidos/' + id)
+
+              return { error: '', draft }
+            } catch (error) {
+              return { error: errorMessage(error) }
+            }
+          }
+          ''',
+
+          'src/app/admin/frete/page.tsx': r'''import { adminDatabase } from '@/lib/admin-auth'
+          import { shippingSettings } from '@/lib/shipping-server'
+          import { loadLabelSender } from '@/lib/label-draft-server'
+          import LabelSenderForm from '@/components/admin/LabelSenderForm'
+          import ShippingSettingsForm from './ShippingSettingsForm'
+          import ShippingTest from './ShippingTest'
+
+          export const dynamic = 'force-dynamic'
+          export const metadata = { title: 'Frete | Administração Serenity' }
+
+          export default async function ShippingPage() {
+            const { db } = await adminDatabase()
+            const settings = await shippingSettings(db)
+            const sender = await loadLabelSender(db, settings.origin)
+
+            return (
+              <div className="mx-auto max-w-4xl px-5 py-8 sm:px-8">
+                <h1 className="text-3xl font-medium">Frete</h1>
+                <p className="mb-7 mt-3 text-sm text-[#756B5D]">
+                  Configure a embalagem, o remetente e teste os serviços disponíveis.
+                </p>
+                <ShippingSettingsForm settings={settings} />
+                <LabelSenderForm initial={sender} />
+                <ShippingTest />
+              </div>
+            )
+          }
+          ''',
+
+          'src/components/admin/LabelPartyFields.tsx': r''''use client'
+
+          import { PARTY_FIELDS } from '@/lib/label-draft'
+          import type { LabelFields } from '@/lib/label-draft'
+
+          export default function LabelPartyFields({ fields }: { fields: LabelFields }) {
+            return (
+              <div className="grid gap-4 sm:grid-cols-2">
+                {PARTY_FIELDS.map(([name, label, max]) => (
+                  <label key={name} className="block text-xs">
+                    {label}
+                    <input
+                      name={name}
+                      defaultValue={fields[name] || ''}
+                      maxLength={max}
+                      autoComplete="off"
+                      className="mt-2 min-h-[44px] w-full rounded-xl border border-[#DDD4C7] bg-white px-3 text-base sm:text-sm"
+                    />
+                  </label>
+                ))}
+              </div>
+            )
+          }
+          ''',
+
+          'src/components/admin/LabelPreparation.tsx': r''''use client'
+
+          import { useState } from 'react'
+          import type { LabelData } from '@/lib/label-draft'
+          import LabelPartyFields from './LabelPartyFields'
+          import { saveLabelDraft } from '@/app/admin/frete/label-actions'
+          import { saleMoney } from '@/lib/admin-sales'
+
+          export default function LabelPreparation({ initial }: { initial: LabelData }) {
+            const [draft, setDraft] = useState(initial)
+            const [busy, setBusy] = useState(false)
+            const [message, setMessage] = useState('')
+
+            return (
+              <section className="mb-5 rounded-3xl border border-[#DED4C5] bg-white p-5 sm:p-7">
+                <h2 className="text-lg font-medium">Preparar etiqueta</h2>
+                <p className="mt-2 text-xs leading-relaxed text-[#756B5D]">
+                  Confira os dados do envio e salve o rascunho.
+                  Esta etapa não envia dados ao Melhor Envio nem compra uma etiqueta.
+                </p>
+                <p className="mt-4 text-sm">
+                  Frete do pedido: <strong>{draft.company} · {draft.service}</strong>
+                </p>
+                <p className="mt-2 text-xs text-[#756B5D]">
+                  O custo para contratar a etiqueta será conferido na próxima etapa.
+                </p>
+
+                <details className="mt-5 rounded-xl border border-[#E5DED3] p-4">
+                  <summary className="cursor-pointer text-xs font-medium">Conteúdo do pedido</summary>
+                  <ul className="mt-3 space-y-2 text-xs">
+                    {draft.products.map((product, index) => (
+                      <li key={index}>
+                        {product.quantity} × {product.name} · {saleMoney(product.value)} por unidade
+                      </li>
+                    ))}
+                  </ul>
+                </details>
+
+                <form
+                  key={draft.version}
+                  className="mt-6"
+                  onSubmit={async event => {
+                    event.preventDefault()
+                    if (busy) return
+                    const data = new FormData(event.currentTarget)
+                    setBusy(true)
+                    setMessage('')
+
+                    try {
+                      const result = await saveLabelDraft(draft.id, data)
+                      if (result.error) setMessage(result.error)
+                      else if (result.draft) {
+                        setDraft(result.draft)
+                        setMessage('Rascunho salvo. Confira abaixo os dados que ainda precisam de atenção.')
+                      }
+                    } catch {
+                      setMessage('A conexão falhou. Atualize a página antes de tentar salvar novamente.')
+                    } finally {
+                      setBusy(false)
+                    }
+                  }}
+                >
+                  <input type="hidden" name="version" value={draft.version} />
+                  <input type="hidden" name="order_version" value={draft.orderVersion} />
+                  <input type="hidden" name="sender_version" value={draft.senderVersion} />
+
+                  <fieldset
+                    disabled={busy || draft.status === 'cancelled' || draft.status === 'refunded'}
+                    className="space-y-6 disabled:opacity-60"
+                  >
+                    <div>
+                      <h3 className="mb-4 text-sm font-medium">Destinatário</h3>
+                      <LabelPartyFields fields={draft.fields} />
+                    </div>
+
+                    <div>
+                      <h3 className="mb-4 text-sm font-medium">Pacote</h3>
+                      <div className="grid gap-4 sm:grid-cols-2">
+                        {[
+                          ['height', 'Altura (cm)'],
+                          ['width', 'Largura (cm)'],
+                          ['length', 'Comprimento (cm)'],
+                          ['weight_g', 'Peso total embalado (g)'],
+                        ].map(([name, label]) => (
+                          <label key={name} className="text-xs">
+                            {label}
+                            <input
+                              name={name}
+                              defaultValue={draft.fields[name] || ''}
+                              inputMode="decimal"
+                              maxLength={20}
+                              className="mt-2 min-h-[44px] w-full rounded-xl border border-[#DDD4C7] px-3 text-base sm:text-sm"
+                            />
+                          </label>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div>
+                      <h3 className="mb-4 text-sm font-medium">Documentação do envio</h3>
+                      <div className="grid gap-4 sm:grid-cols-2">
+                        <label className="text-xs">
+                          Situação
+                          <select
+                            name="document_mode"
+                            defaultValue={draft.fields.document_mode}
+                            className="mt-2 min-h-[44px] w-full rounded-xl border border-[#DDD4C7] bg-white px-3 text-sm"
+                          >
+                            <option value="pending">A confirmar com a loja</option>
+                            <option value="invoice">Nota fiscal eletrônica (NF-e)</option>
+                          </select>
+                        </label>
+                        <label className="text-xs">
+                          Chave de acesso da NF-e, quando emitida
+                          <input
+                            name="invoice_key"
+                            defaultValue={draft.fields.invoice_key}
+                            maxLength={44}
+                            inputMode="numeric"
+                            className="mt-2 min-h-[44px] w-full rounded-xl border border-[#DDD4C7] px-3 text-sm"
+                          />
+                        </label>
+                      </div>
+                      <p className="mt-3 text-xs text-[#756B5D]">
+                        Não sabe qual documento a loja utiliza? Deixe a confirmar.
+                        O sistema não presume declaração de conteúdo nem emite nota fiscal.
+                      </p>
+                    </div>
+
+                    <label className="block text-xs">
+                      Observações internas do envio
+                      <textarea name="notes" defaultValue={draft.fields.notes} rows={3} maxLength={2000} className="mt-2 w-full rounded-xl border border-[#DDD4C7] p-3 text-sm" />
+                    </label>
+
+                    <button disabled={busy} className="rounded-full bg-[#292621] px-6 py-3 text-xs text-white disabled:opacity-50">
+                      {busy ? 'Salvando…' : 'Salvar rascunho e conferir'}
+                    </button>
+                  </fieldset>
+                </form>
+
+                <p role="status" className="mt-4 text-sm">{message}</p>
+
+                <div className="mt-5 rounded-2xl bg-[#F8F4ED] p-4">
+                  <h3 className="text-sm font-medium">Conferência dos dados salvos</h3>
+                  {draft.issues.length ? (
+                    <ul className="mt-3 list-disc space-y-2 pl-4 text-xs leading-relaxed text-[#756B5D]">
+                      {draft.issues.map((issue, index) => <li key={index}>{issue}</li>)}
+                    </ul>
+                  ) : (
+                    <p className="mt-3 text-xs text-[#52654B]">
+                      Sem campos pendentes nesta conferência. Ainda não há etiqueta gerada ou comprada.
+                    </p>
+                  )}
+                  <p className="mt-4 text-[11px] text-[#756B5D]">
+                    Se editar os campos acima, salve novamente para atualizar esta conferência.
+                  </p>
+                </div>
+              </section>
+            )
+          }
+          ''',
+
+          'src/components/admin/LabelSenderForm.tsx': r''''use client'
+
+          import { useState } from 'react'
+          import type { SenderData } from '@/lib/label-draft'
+          import LabelPartyFields from './LabelPartyFields'
+          import { saveLabelSender } from '@/app/admin/frete/label-actions'
+
+          export default function LabelSenderForm({ initial }: { initial: SenderData }) {
+            const [sender, setSender] = useState(initial)
+            const [busy, setBusy] = useState(false)
+            const [message, setMessage] = useState('')
+
+            return (
+              <section className="mb-7 rounded-2xl border border-[#E5DED3] bg-white p-5 sm:p-7">
+                <h2 className="text-lg font-medium">Remetente das etiquetas</h2>
+                <p className="mb-5 mt-2 text-xs leading-relaxed text-[#756B5D]">
+                  Cadastre os dados reais da pessoa ou empresa que despacha os pedidos.
+                  É possível salvar parcialmente; os campos pendentes aparecerão na preparação de cada envio.
+                  O CEP deve ser o mesmo da origem configurada acima.
+                </p>
+
+                <form key={sender.version} onSubmit={async event => {
+                  event.preventDefault()
+                  if (busy) return
+                  const form = new FormData(event.currentTarget)
+                  setBusy(true)
+                  setMessage('')
+
+                  try {
+                    const result = await saveLabelSender(form)
+                    if (result.error) setMessage(result.error)
+                    else if (result.sender) {
+                      setSender(result.sender)
+                      setMessage('Remetente salvo. Os próximos rascunhos usarão estes dados.')
+                    }
+                  } catch {
+                    setMessage('A conexão falhou. Atualize a página antes de tentar novamente.')
+                  } finally {
+                    setBusy(false)
+                  }
+                }}>
+                  <input type="hidden" name="version" value={sender.version} />
+                  <fieldset disabled={busy}>
+                    <LabelPartyFields fields={sender.fields} />
+                    <button disabled={busy} className="mt-5 rounded-full bg-[#292621] px-6 py-3 text-xs text-white disabled:opacity-50">
+                      {busy ? 'Salvando…' : 'Salvar remetente'}
+                    </button>
+                  </fieldset>
+                </form>
+                <p role="status" className="mt-3 text-sm">{message}</p>
+              </section>
+            )
+          }
+          ''',
+
+          'src/lib/label-draft-server.ts': r'''import 'server-only'
+
+          import type { SupabaseClient } from '@supabase/supabase-js'
+          import type { LabelFields, LabelData, SenderData } from '@/lib/label-draft'
+          import { partyIssues } from '@/lib/label-draft'
+
+          type Row = Record<string, unknown>
+          const row = (input: unknown): Row =>
+            input && typeof input === 'object' && !Array.isArray(input)
+              ? input as Row
+              : {}
+
+          function textFields(input: unknown): LabelFields {
+            return Object.fromEntries(
+              Object.entries(row(input)).filter(([, value]) => typeof value === 'string')
+            ) as LabelFields
+          }
+
+          export async function loadLabelSender(
+            db: SupabaseClient,
+            origin: string
+          ): Promise<SenderData> {
+            const { data, error } = await db.from('serenity_label_sender')
+              .select('fields,version').eq('singleton', true).single()
+
+            if (error) throw new Error('LABEL_QUERY')
+
+            const fields = textFields(data.fields)
+            return {
+              fields: { ...fields, cep: fields.cep ?? origin },
+              version: Number(data.version),
+            }
+          }
+
+          export async function loadLabelPreparation(
+            db: SupabaseClient,
+            input: unknown
+          ): Promise<LabelData> {
+            const order = row(input), id = String(order.id)
+
+            const [senderResult, draftResult, configResult] = await Promise.all([
+              db.from('serenity_label_sender').select('fields,version').eq('singleton', true).single(),
+              db.from('serenity_label_drafts').select('*').eq('order_id', id).maybeSingle(),
+              db.from('serenity_shipping_settings').select('origin').eq('singleton', true).single(),
+            ])
+
+            if (senderResult.error || draftResult.error || configResult.error) {
+              throw new Error('LABEL_QUERY')
+            }
+
+            const sender = textFields(senderResult.data.fields)
+            const draft = draftResult.data
+            const customer = row(order.customer_snapshot)
+            const address = row(order.delivery_address)
+            const shipping = row(order.shipping_details)
+            const volume = row(shipping.volume)
+            const provider = row(shipping.provider)
+
+            const defaults: LabelFields = {
+              name: String(customer.name || ''),
+              email: String(customer.email || ''),
+              phone: String(customer.phone || ''),
+              document: '',
+              state_register: '',
+              cep: String(address.cep || ''),
+              street: String(address.street || ''),
+              number: String(address.number || ''),
+              complement: String(address.complement || ''),
+              district: String(address.district || ''),
+              city: String(address.city || ''),
+              state: String(address.state || ''),
+              height: volume.height == null ? '' : String(volume.height),
+              width: volume.width == null ? '' : String(volume.width),
+              length: volume.length == null ? '' : String(volume.length),
+              weight_g: volume.weight == null ? '' : String(Math.round(Number(volume.weight) * 1000)),
+              document_mode: 'pending',
+              invoice_key: '',
+              notes: '',
+            }
+
+            const fields = { ...defaults, ...textFields(draft?.fields) }
+            const issues = [
+              ...partyIssues(sender, 'Remetente'),
+              ...partyIssues(fields, 'Destinatário'),
+            ]
+
+            if ((sender.cep || '').replace(/\D/g, '') !== configResult.data.origin) {
+              issues.push('O CEP do remetente deve coincidir com a origem configurada na aba Frete.')
+            }
+            if (order.status !== 'paid') {
+              issues.push('O pedido precisa estar pago antes da compra da etiqueta.')
+            }
+            if (order.shipping_pending || shipping.manual || !provider.id) {
+              issues.push('O frete deste pedido ainda precisa ser confirmado com uma transportadora e um serviço.')
+            }
+            if (shipping.destination && (fields.cep || '').replace(/\D/g, '') !== String(shipping.destination)) {
+              issues.push('O CEP do destinatário está diferente do cotado. Será necessário conferir o frete para o novo destino.')
+            }
+
+            const metrics = ['height', 'width', 'length', 'weight_g']
+            if (metrics.some(key =>
+              !/^\d+(?:[.,]\d{1,2})?$/.test(fields[key]) ||
+              Number(fields[key].replace(',', '.')) <= 0
+            )) {
+              issues.push('Preencha altura, largura, comprimento e peso positivos para o pacote.')
+            } else if (
+              Number(fields.weight_g.replace(',', '.')) > 1000000 ||
+              metrics.slice(0, 3).some(key => Number(fields[key].replace(',', '.')) > 1000)
+            ) {
+              issues.push('Confira as dimensões e o peso do pacote.')
+            } else if (volume.height != null && (
+              Number(fields.height.replace(',', '.')) !== Number(volume.height) ||
+              Number(fields.width.replace(',', '.')) !== Number(volume.width) ||
+              Number(fields.length.replace(',', '.')) !== Number(volume.length) ||
+              Number(fields.weight_g.replace(',', '.')) !== Math.round(Number(volume.weight) * 1000)
+            )) {
+              issues.push('O pacote foi alterado em relação à cotação. Será necessário conferir o frete antes de contratar a etiqueta.')
+            }
+
+            if (fields.document_mode !== 'invoice') {
+              issues.push('Documentação do envio ainda não confirmada. Não foi presumida uma declaração de conteúdo.')
+            } else {
+              if (!/^\d{44}$/.test(fields.invoice_key)) {
+                issues.push('Informe a chave de acesso da NF-e com 44 números.')
+              }
+              if (!sender.state_register) {
+                issues.push('Confira e preencha a inscrição estadual / situação do remetente para o envio com NF-e.')
+              }
+            }
+
+            if (draft && (
+              String(draft.order_version) !== String(order.updated_at) ||
+              Number(draft.sender_version) !== Number(senderResult.data.version)
+            )) {
+              issues.push('O pedido ou remetente mudou após este rascunho. Confira os dados e salve novamente.')
+            }
+            if (order.status === 'cancelled' || order.status === 'refunded') {
+              issues.push('Este pedido não está disponível para preparação de envio.')
+            }
+
+            const products = (Array.isArray(order.items) ? order.items : []).map(item => {
+              const p = row(item)
+              return {
+                name: [p.name, p.variation].filter(Boolean).join(' · '),
+                quantity: Number(p.quantity),
+                value: Number(p.unit_price),
+              }
+            })
+
+            return {
+              id,
+              version: Number(draft?.version || 0),
+              orderVersion: String(order.updated_at),
+              senderVersion: Number(senderResult.data.version),
+              fields,
+              issues,
+              company: String(shipping.company || 'A confirmar'),
+              service: String(shipping.service || 'A confirmar'),
+              status: String(order.status),
+              products,
+            }
+          }
+          ''',
+
+          'src/lib/label-draft.ts': r'''import { CHECKOUT_STATES } from '@/lib/checkout'
+
+          export type LabelFields = Record<string, string>
+
+          export const PARTY_FIELDS = [
+            ['name', 'Nome / razão social', 180],
+            ['email', 'E-mail', 254],
+            ['phone', 'Telefone com DDD', 25],
+            ['document', 'CPF ou CNPJ', 30],
+            ['state_register', 'Inscrição estadual / ISENTO', 30],
+            ['cep', 'CEP', 10],
+            ['street', 'Rua ou avenida', 180],
+            ['number', 'Número', 30],
+            ['complement', 'Complemento', 180],
+            ['district', 'Bairro', 100],
+            ['city', 'Cidade', 100],
+            ['state', 'Estado (UF)', 2],
+          ] as const
+
+          export interface SenderData {
+            fields: LabelFields
+            version: number
+          }
+
+          export interface LabelData {
+            id: string
+            version: number
+            orderVersion: string
+            senderVersion: number
+            fields: LabelFields
+            issues: string[]
+            company: string
+            service: string
+            status: string
+            products: { name: string; quantity: number; value: number }[]
+          }
+
+          export function readLabelFields(
+            data: FormData,
+            kind: 'sender' | 'draft'
+          ): LabelFields {
+            const allowed: readonly (readonly [string, string, number])[] =
+              kind === 'sender' ? PARTY_FIELDS : [
+                ...PARTY_FIELDS,
+                ['height', 'Altura', 20],
+                ['width', 'Largura', 20],
+                ['length', 'Comprimento', 20],
+                ['weight_g', 'Peso', 20],
+                ['document_mode', 'Documentação', 30],
+                ['invoice_key', 'Chave da NF-e', 44],
+                ['notes', 'Observações', 2000],
+              ]
+
+            const result: LabelFields = {}
+
+            for (const [key, label, max] of allowed) {
+              const value = data.get(key)
+              if (value !== null && typeof value !== 'string') {
+                throw new Error('Confira o campo ' + label + '.')
+              }
+
+              const text = String(value || '').trim()
+              if (text.length > max || /[\u0000-\u0008\u000B\u000C\u000E-\u001F]/.test(text)) {
+                throw new Error('Confira o campo ' + label + '.')
+              }
+              result[key] = text
+            }
+
+            if (kind === 'draft' && !['pending', 'invoice'].includes(result.document_mode)) {
+              throw new Error('Confira a documentação do envio.')
+            }
+
+            return result
+          }
+
+          export function partyIssues(fields: LabelFields, who: string): string[] {
+            const result: string[] = []
+            const required = ['name', 'email', 'phone', 'document', 'cep', 'street', 'number', 'district', 'city', 'state']
+            const missing = PARTY_FIELDS
+              .filter(([key]) => required.includes(key) && !fields[key])
+              .map(([, label]) => label)
+
+            if (missing.length) result.push(`${who}: preencha ${missing.join(', ')}.`)
+            if (fields.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(fields.email)) {
+              result.push(`${who}: confira o e-mail.`)
+            }
+            if (fields.phone && !/^\d{10,11}$/.test(fields.phone.replace(/\D/g, ''))) {
+              result.push(`${who}: confira o telefone com DDD.`)
+            }
+            if (fields.cep && !/^\d{8}$/.test(fields.cep.replace(/\D/g, ''))) {
+              result.push(`${who}: confira o CEP.`)
+            }
+            if (fields.state && !CHECKOUT_STATES.includes(fields.state.toUpperCase())) {
+              result.push(`${who}: confira o estado.`)
+            }
+
+            const doc = (fields.document || '').replace(/[^a-zA-Z0-9]/g, '').toUpperCase()
+            if (doc && !/^(\d{11}|[A-Z0-9]{12}\d{2})$/.test(doc)) {
+              result.push(`${who}: confira o formato do CPF/CNPJ.`)
+            }
+            return result
+          }
+          ''',
+          }
+
+          marker = '// Serenity: preparacao de etiqueta v1'
+
+          def read(name):
+              path = root / name
+              if not path.is_file():
+                  raise SystemExit(
+                      'Falta o arquivo ' + name +
+                      '. Nenhum arquivo foi alterado.'
+                  )
+              return path.read_text(encoding='utf-8')
+
+          read('src/lib/shipping-server.ts')
+          read('src/app/admin/frete/ShippingSettingsForm.tsx')
+
+          name = 'src/app/admin/pedidos/[id]/page.tsx'
+          source = read(name)
+
+          if marker not in source:
+              source, count = re.subn(
+                  r'(\bconst\s+margin\s*=)',
+                  r'const labelPreparation = await loadLabelPreparation(db, order)\n  \1',
+                  source,
+                  count=1
+              )
+              if count != 1:
+                  raise SystemExit(
+                      'Envie a tela atual do pedido para incluir a preparação. Nenhum arquivo foi alterado.'
+                  )
+
+              source, count = re.subn(
+                  r'<OrderOrigin\b',
+                  '<LabelPreparation initial={labelPreparation} /><OrderOrigin',
+                  source,
+                  count=1
+              )
+              if count != 1:
+                  raise SystemExit(
+                      'Não encontrei o local de preparação do envio. Nenhum arquivo foi alterado.'
+                  )
+
+              source = (
+                  "import LabelPreparation from '@/components/admin/LabelPreparation'\n"
+                  "import { loadLabelPreparation } from '@/lib/label-draft-server'\n"
+                  + source + '\n' + marker + '\n'
+              )
+              files[name] = source
+
+          for name, content in files.items():
+              target = root / name
+              target.parent.mkdir(parents=True, exist_ok=True)
+              target.write_text(content, encoding='utf-8')
+
+          print('Remetente e preparação local de etiqueta instalados.')
+          print('Nenhum envio foi comprado ou enviado ao Melhor Envio.')
+          PY
+
+      - run: npm ci --ignore-scripts
+
+      - run: npx tsc --noEmit --incremental false
+
+      - run: npx next lint --no-cache
+
+      - name: Salvar atualização
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git add src/app/admin/frete/page.tsx src/app/admin/frete/label-actions.ts src/app/admin/pedidos/'[id]'/page.tsx src/components/admin/LabelPartyFields.tsx src/components/admin/LabelSenderForm.tsx src/components/admin/LabelPreparation.tsx src/lib/label-draft.ts src/lib/label-draft-server.ts
+
+          if git diff --cached --quiet; then
+            echo "Preparação já instalada."
+          else
+            git commit -m "Adicionar remetente e rascunho privado de etiqueta por pedido"
+            git push origin HEAD:main
+          fi

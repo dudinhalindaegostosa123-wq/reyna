@@ -1,0 +1,448 @@
+name: Mostrar quantidades de estoque
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: mostrar-quantidades-estoque
+  cancel-in-progress: false
+
+jobs:
+  instalar:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Ajustar edição e listagem
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          root = Path.cwd()
+
+          files = {
+              'src/components/admin/ProductStockBadge.tsx': r'''import { inventoryQuantity } from '@/lib/inventory'
+          import type { InventoryRow } from '@/lib/inventory'
+
+          export default function ProductStockBadge({row}:{row?:InventoryRow}) {
+            if (!row) return <p className="text-xs text-[#81796C]">Não disponível</p>
+
+            return (
+              <div className="space-y-1 text-[11px] text-[#756B5D]">
+                <p>
+                  <span className="font-medium text-[#292621]">Cadastrado:</span>{' '}
+                  {inventoryQuantity(row.known_total, row.untracked)}
+                </p>
+                <p>Reservado: {Number(row.reserved).toLocaleString('pt-BR')}</p>
+                <p>
+                  <span className="font-medium text-[#292621]">Disponível:</span>{' '}
+                  {inventoryQuantity(row.available_known, row.available_untracked)}
+                </p>
+                {row.product_type === 'variable' && (
+                  <p className="text-[10px] text-[#947B57]">
+                    {row.variant_count} variações ativas
+                    {row.untracked > 0 ? ` · ${row.untracked} sem quantidade` : ''}
+                  </p>
+                )}
+              </div>
+            )
+          }
+          ''',
+
+              'src/components/admin/VariantStockSummary.tsx': r''''use client'
+
+          import { useEffect, useState } from 'react'
+          import type { RefObject } from 'react'
+          import type { EditableProduct } from '@/lib/admin-product-editor'
+          import type { InventoryRow } from '@/lib/inventory'
+          import { inventoryQuantity } from '@/lib/inventory'
+
+          interface Props {
+            variants: EditableProduct[]
+            formRef: RefObject<HTMLFormElement>
+            inventory?: InventoryRow
+          }
+
+          interface Summary {
+            total: number
+            missing: number
+            available: number
+            availableMissing: number
+            active: number
+            invalid: number
+          }
+
+          export default function VariantStockSummary({ variants, formRef, inventory }: Props) {
+            const [summary, setSummary] = useState<Summary>({
+              total: 0,
+              missing: 0,
+              available: 0,
+              availableMissing: 0,
+              active: 0,
+              invalid: 0,
+            })
+
+            useEffect(() => {
+              const form = formRef.current
+              if (!form) return
+
+              function update() {
+                const data = new FormData(form!)
+                const result: Summary = {
+                  total: 0,
+                  missing: 0,
+                  available: 0,
+                  availableMissing: 0,
+                  active: 0,
+                  invalid: 0,
+                }
+
+                for (const variant of variants) {
+                  const prefix = `v.${variant.id}.`
+                  if (data.get(prefix + 'enabled') !== 'on') continue
+
+                  result.active++
+
+                  const raw = String(data.get(prefix + 'stock_quantity') || '').trim()
+                  const status = String(data.get(prefix + 'stock_status') || '')
+
+                  if (!raw) {
+                    result.missing++
+                    if (status === 'instock') result.availableMissing++
+                    continue
+                  }
+
+                  if (!/^\d+$/.test(raw) || Number(raw) > 100000000) {
+                    result.invalid++
+                    continue
+                  }
+
+                  const quantity = Number(raw)
+                  result.total += quantity
+
+                  if (status === 'instock') {
+                    result.available += Math.max(
+                      0,
+                      quantity - Number(inventory?.reserved_by_variant[String(variant.id)] || 0)
+                    )
+                  }
+                }
+
+                setSummary(result)
+              }
+
+              const onChange = (event: Event) => {
+                const name = (event.target as HTMLInputElement)?.name || ''
+                if (/^v\..*\.(stock_quantity|stock_status|enabled)$/.test(name)) update()
+              }
+
+              update()
+              form.addEventListener('input', onChange)
+              form.addEventListener('change', onChange)
+
+              return () => {
+                form.removeEventListener('input', onChange)
+                form.removeEventListener('change', onChange)
+              }
+            }, [variants, formRef, inventory])
+
+            return (
+              <section
+                aria-label="Estoque geral calculado"
+                className="rounded-2xl border border-[#DDD1BF] bg-[#F8F4ED] p-4 sm:col-span-2"
+              >
+                <h3 className="text-sm font-medium">Estoque geral · automático</h3>
+
+                <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-3">
+                  {[
+                    ['Cadastrado', summary.invalid ? 'Confira os campos' : inventoryQuantity(summary.total, summary.missing)],
+                    ['Reservado', String(inventory?.reserved || 0)],
+                    ['Disponível', summary.invalid ? 'Confira os campos' : inventoryQuantity(summary.available, summary.availableMissing)],
+                  ].map(([label, value]) => (
+                    <div key={label}>
+                      <p className="text-[11px] text-[#81796C]">{label}</p>
+                      <p className="mt-1 text-sm font-medium">{value}</p>
+                    </div>
+                  ))}
+                </div>
+
+                <p className="mt-4 text-[11px] leading-relaxed text-[#756B5D]">
+                  Preencha a quantidade somente nas variações abaixo.
+                  O total soma as {summary.active} variações habilitadas;
+                  o disponível considera a situação de estoque e as reservas
+                  carregadas ao abrir a página. Salve para aplicar as alterações.
+                </p>
+
+                {summary.missing > 0 && (
+                  <p className="mt-3 text-[11px] text-[#8A6532]">
+                    {summary.missing} variação(ões) sem quantidade definida.
+                    O total permanece parcial até preencher esses campos.
+                  </p>
+                )}
+              </section>
+            )
+          }
+          ''',
+
+              'src/lib/admin-inventory.ts': r'''import 'server-only'
+          import type { SupabaseClient } from '@supabase/supabase-js'
+          import type { InventoryRow } from '@/lib/inventory'
+
+          export async function getAdminInventory(
+            db: SupabaseClient,
+            ids: string[]
+          ): Promise<Map<string, InventoryRow>> {
+            if (!ids.length) return new Map()
+
+            const { data, error } = await db
+              .from('serenity_admin_inventory')
+              .select('*')
+              .in('product_id', ids)
+
+            if (error) throw new Error('ADMIN_INVENTORY_QUERY')
+
+            return new Map(
+              (data || []).map(row => [String(row.product_id), row as InventoryRow])
+            )
+          }
+          ''',
+
+              'src/lib/inventory.ts': r'''export interface InventoryRow {
+            product_id: string
+            product_type: string
+            variant_count: number
+            untracked: number
+            known_total: number
+            reserved: number
+            available_untracked: number
+            available_known: number
+            reserved_by_variant: Record<string, number>
+          }
+
+          export function inventoryQuantity(known: number, missing: number): string {
+            if (missing > 0) {
+              return known > 0
+                ? `${Number(known).toLocaleString('pt-BR')} + não definido`
+                : 'Não definido'
+            }
+
+            return Number(known).toLocaleString('pt-BR')
+          }
+          ''',
+          }
+
+          marker = '// Serenity: estoque geral das variações v2'
+          patches = {}
+
+          def read(name):
+              path = root / name
+              if not path.is_file():
+                  raise SystemExit('Não encontrei ' + name + '. Nenhum arquivo foi alterado.')
+              return path.read_text(encoding='utf-8')
+
+          def change(source, old, new):
+              if source.count(old) != 1:
+                  raise SystemExit('O trecho mudou. Nenhum arquivo foi alterado: ' + old[:100])
+              return source.replace(old, new, 1)
+
+          name = 'src/app/admin/produtos/[id]/UnifiedProductEditor.tsx'
+          source = read(name)
+
+          if marker not in source:
+              source = change(
+                  source,
+                  "'use client'",
+                  "'use client'\nimport VariantStockSummary from '@/components/admin/VariantStockSummary'\nimport type { InventoryRow } from '@/lib/inventory'\nimport type { RefObject } from 'react'"
+              )
+
+              source = change(
+                  source,
+                  'isNew = false, options }',
+                  'isNew = false, options, inventory }'
+              )
+
+              source = change(
+                  source,
+                  'options: ClassificationOptions',
+                  'options: ClassificationOptions; inventory?: InventoryRow'
+              )
+
+              start = source.find('function PriceStock(')
+              end = source.find('function CommercialFields(', start)
+
+              if start < 0 or end < 0:
+                  raise SystemExit('A seção de estoque mudou. Nenhum arquivo foi alterado.')
+
+              replacement = r"""function PriceStock({ row, prefix, variants, formRef, inventory }: { row: EditableProduct; prefix: string; variants?: EditableProduct[]; formRef?: RefObject<HTMLFormElement>; inventory?: InventoryRow }) {
+            const calculated = prefix === 'p.' && (row.product_type === 'variable' || Boolean(variants?.length))
+
+            return (
+              <div className="grid gap-4 sm:grid-cols-2">
+                <Field name={`${prefix}regular_price`} label="Preço base (R$)" value={row.regular_price} limit={40} />
+                <Field name={`${prefix}sale_price`} label="Preço promocional (R$) · Opcional" value={row.sale_price} limit={40} />
+
+                {calculated && formRef ? (
+                  <>
+                    <input type="hidden" name={`${prefix}stock_quantity`} value="" />
+                    <input type="hidden" name={`${prefix}stock_status`} value={row.stock_status || 'outofstock'} />
+                    <VariantStockSummary variants={variants || []} formRef={formRef} inventory={inventory} />
+                  </>
+                ) : (
+                  <>
+                    <Field
+                      name={`${prefix}stock_quantity`}
+                      label={prefix === 'p.' ? 'Quantidade em estoque' : 'Quantidade em estoque da variação'}
+                      value={row.stock_quantity}
+                      limit={40}
+                    />
+
+                    <label className="block text-xs">
+                      Situação do estoque
+                      <select name={`${prefix}stock_status`} defaultValue={row.stock_status} className={field}>
+                        <option value="instock">Em estoque</option>
+                        <option value="outofstock">Sem estoque</option>
+                        <option value="onbackorder">Sob encomenda</option>
+                      </select>
+                    </label>
+
+                    <p className="text-[11px] text-[#81796C] sm:col-span-2">
+                      Quantidade vazia significa não definida. Use 0 quando não houver unidades.
+                    </p>
+                  </>
+                )}
+
+                {Boolean(row.sale_starts_at || row.sale_ends_at) && (
+                  <p className="text-[11px] text-[#81796C] sm:col-span-2">
+                    O agendamento de promoção existente será preservado.
+                  </p>
+                )}
+              </div>
+            )
+          }
+          """
+
+              source = source[:start] + replacement + source[end:]
+
+              source = change(
+                  source,
+                  '<PriceStock row={product} prefix="p." />',
+                  '<PriceStock row={product} prefix="p." variants={variants} formRef={formRef} inventory={inventory} />'
+              )
+
+              source = change(
+                  source,
+                  'Os preços das opções ficam nas variações abaixo. O estoque geral pode limitar a disponibilidade de todas elas.',
+                  'Os preços e as quantidades ficam nas variações abaixo. O estoque geral é calculado automaticamente.'
+              )
+
+              patches[name] = source + '\n' + marker + '\n'
+
+          name = 'src/app/admin/produtos/[id]/page.tsx'
+          source = read(name)
+
+          if marker not in source:
+              source = "import { getAdminInventory } from '@/lib/admin-inventory'\n" + source
+
+              source = change(
+                  source,
+                  'const bundle = result.data as EditorBundle',
+                  'const bundle = result.data as EditorBundle\n  const inventory = (await getAdminInventory(db,[String(bundle.product.id)])).get(String(bundle.product.id))'
+              )
+
+              source, count = re.subn(
+                  r'<UnifiedProductEditor\b',
+                  '<UnifiedProductEditor inventory={inventory}',
+                  source,
+                  count=1
+              )
+
+              if count != 1:
+                  raise SystemExit('A tela de edição mudou. Nenhum arquivo foi alterado.')
+
+              patches[name] = source + '\n' + marker + '\n'
+
+          name = 'src/app/admin/produtos/page.tsx'
+          source = read(name)
+
+          if marker not in source:
+              source = "import ProductStockBadge from '@/components/admin/ProductStockBadge'\nimport { getAdminInventory } from '@/lib/admin-inventory'\n" + source
+
+              source = change(
+                  source,
+                  'const products = (result.data || []) as AdminProduct[]',
+                  'const products = (result.data || []) as AdminProduct[]\n  const inventory = await getAdminInventory(db,products.map(product=>String(product.id)))'
+              )
+
+              source, count = re.subn(
+                  r'<p className="text-\[11px\] text-\[\#81796C\]">\s*\{product\.stock_status === \'instock\'[\s\S]*?</p>',
+                  '<ProductStockBadge row={inventory.get(String(product.id))} />',
+                  source,
+                  count=1
+              )
+
+              if count != 1:
+                  raise SystemExit('A coluna de estoque mudou. Nenhum arquivo foi alterado.')
+
+              source = source.replace(
+                  '_110px_120px_110px]',
+                  '_110px_120px_170px]'
+              )
+
+              patches[name] = source + '\n' + marker + '\n'
+
+          for name in [
+              'src/app/admin/pedidos/actions.ts',
+              'src/app/admin/pedidos/stock-actions.ts'
+          ]:
+              source = read(name)
+
+              if marker not in source:
+                  if "revalidateTag('catalog')" not in source:
+                      raise SystemExit('As ações de estoque mudaram. Nenhum arquivo foi alterado.')
+
+                  source = source.replace(
+                      "revalidateTag('catalog')",
+                      "revalidatePath('/admin/produtos');revalidatePath('/admin/produtos/[id]','page');revalidateTag('catalog')"
+                  )
+
+                  patches[name] = source + '\n' + marker + '\n'
+
+          for name, content in {**files, **patches}.items():
+              target = root / name
+              target.parent.mkdir(parents=True, exist_ok=True)
+              target.write_text(content, encoding='utf-8')
+
+          print('Estoque geral calculado pelas variações e quantidades visíveis na listagem.')
+          PY
+
+      - run: npm ci --ignore-scripts
+
+      - run: npx tsc --noEmit --incremental false
+
+      - run: npx next lint --no-cache
+
+      - name: Salvar atualização
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git add src/app/admin/produtos src/app/admin/pedidos/actions.ts src/app/admin/pedidos/stock-actions.ts src/components/admin/ProductStockBadge.tsx src/components/admin/VariantStockSummary.tsx src/lib/inventory.ts src/lib/admin-inventory.ts
+
+          if git diff --cached --quiet; then
+            echo "Quantidades já instaladas."
+          else
+            git commit -m "Calcular estoque pelas variações e exibir quantidades no painel"
+            git push origin HEAD:main
+          fi

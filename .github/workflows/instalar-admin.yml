@@ -1,0 +1,742 @@
+name: Instalar painel administrativo
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: instalar-admin-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  instalar:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Baixar projeto
+        uses: actions/checkout@v4
+
+      - name: Preparar Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Criar arquivos do painel
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import json
+          import re
+
+          root = Path.cwd()
+
+          files = {
+              'src/lib/admin-auth.ts': r'''import 'server-only'
+
+          import { createServerClient } from '@supabase/ssr'
+          import { createClient } from '@supabase/supabase-js'
+          import { cookies } from 'next/headers'
+          import { redirect } from 'next/navigation'
+
+          export function adminAuth() {
+            const url = process.env.SUPABASE_URL?.trim()
+            const key = process.env.SUPABASE_PUBLISHABLE_KEY?.trim()
+            if (!url || !key) throw new Error('ADMIN_CONFIGURATION')
+            const jar = cookies()
+
+            return createServerClient(url, key, {
+              global: {
+                fetch: (input, init) => fetch(input, { ...init, cache: 'no-store' }),
+              },
+              cookieOptions: {
+                name: 'serenity-admin',
+                path: '/admin',
+                httpOnly: true,
+                sameSite: 'lax',
+                secure: process.env.NODE_ENV === 'production',
+              },
+              cookies: {
+                getAll: () => jar.getAll(),
+                setAll: (items) => {
+                  try {
+                    items.forEach(({ name, value, options }) => jar.set(name, value, options))
+                  } catch {
+                    // A renovação dos cookies em páginas é feita pelo middleware.
+                  }
+                },
+              },
+            })
+          }
+
+          export function allowedAdmin(id: string) {
+            const ids = (process.env.SERENITY_ADMIN_USER_IDS || '')
+              .split(',').map((item) => item.trim()).filter(Boolean)
+            return ids.includes(id)
+          }
+
+          export async function requireAdmin() {
+            const auth = adminAuth()
+            const { data: { user }, error } = await auth.auth.getUser()
+
+            if (error || !user) redirect('/admin/login')
+
+            if (!user.email_confirmed_at || !allowedAdmin(user.id)) {
+              redirect('/admin/login?erro=permissao')
+            }
+
+            return user
+          }
+
+          export async function adminDatabase() {
+            const user = await requireAdmin()
+            const url = process.env.SUPABASE_URL?.trim()
+            const key = process.env.SUPABASE_SECRET_KEY?.trim()
+
+            if (!url || !key) throw new Error('ADMIN_CONFIGURATION')
+
+            const db = createClient(url, key, {
+              auth: {
+                persistSession: false,
+                autoRefreshToken: false,
+                detectSessionInUrl: false,
+              },
+              global: {
+                fetch: (input, init) => fetch(input, { ...init, cache: 'no-store' }),
+              },
+            })
+
+            return { db, user }
+          }
+          ''',
+
+              'src/middleware.ts': r'''import { createServerClient } from '@supabase/ssr'
+          import { NextResponse, type NextRequest } from 'next/server'
+
+          export async function middleware(request: NextRequest) {
+            let response = NextResponse.next({ request })
+            const url = process.env.SUPABASE_URL?.trim()
+            const key = process.env.SUPABASE_PUBLISHABLE_KEY?.trim()
+
+            if (
+              url && key &&
+              request.cookies.getAll().some((item) => item.name.startsWith('serenity-admin'))
+            ) {
+              const auth = createServerClient(url, key, {
+                cookieOptions: {
+                  name: 'serenity-admin',
+                  path: '/admin',
+                  httpOnly: true,
+                  sameSite: 'lax',
+                  secure: process.env.NODE_ENV === 'production',
+                },
+                cookies: {
+                  getAll: () => request.cookies.getAll(),
+                  setAll: (items) => {
+                    items.forEach(({ name, value }) => request.cookies.set(name, value))
+                    response = NextResponse.next({ request })
+                    items.forEach(({ name, value, options }) =>
+                      response.cookies.set(name, value, options)
+                    )
+                  },
+                },
+              })
+
+              await auth.auth.getUser()
+            }
+
+            response.headers.set('Cache-Control', 'private, no-store, max-age=0')
+            response.headers.set('X-Robots-Tag', 'noindex, nofollow')
+            return response
+          }
+
+          export const config = { matcher: ['/admin/:path*'] }
+          ''',
+
+              'src/components/layout/SiteChrome.tsx': r''''use client'
+
+          import { usePathname } from 'next/navigation'
+          import Header from '@/components/layout/Header'
+          import Footer from '@/components/layout/Footer'
+          import CartDrawer from '@/components/cart/CartDrawer'
+
+          export default function SiteChrome({ children }: { children: React.ReactNode }) {
+            const path = usePathname()
+
+            if (path === '/admin' || path.startsWith('/admin/')) {
+              return <>{children}</>
+            }
+
+            return (
+              <>
+                <Header />
+                <main>{children}</main>
+                <Footer />
+                <CartDrawer />
+              </>
+            )
+          }
+          ''',
+
+              'src/app/admin/layout.tsx': r'''import type { Metadata } from 'next'
+
+          export const dynamic = 'force-dynamic'
+
+          export const metadata: Metadata = {
+            title: 'Administração',
+            robots: { index: false, follow: false },
+          }
+
+          export default function AdminLayout({ children }: { children: React.ReactNode }) {
+            return (
+              <div className="min-h-screen bg-[#F6F4EF] text-[#292621]">
+                {children}
+              </div>
+            )
+          }
+          ''',
+
+              'src/app/admin/page.tsx': r'''import { redirect } from 'next/navigation'
+
+          export default function AdminPage() {
+            redirect('/admin/produtos')
+          }
+          ''',
+
+              'src/app/admin/actions.ts': r''''use server'
+
+          import { redirect } from 'next/navigation'
+          import { adminAuth, allowedAdmin } from '@/lib/admin-auth'
+
+          export async function login(form: FormData) {
+            const email = String(form.get('email') || '').trim().slice(0, 254)
+            const password = String(form.get('password') || '')
+
+            if (!email || !password || password.length > 1024) {
+              redirect('/admin/login?erro=login')
+            }
+
+            const auth = adminAuth()
+            const { data, error } = await auth.auth.signInWithPassword({ email, password })
+
+            if (error || !data.user) redirect('/admin/login?erro=login')
+
+            if (!data.user.email_confirmed_at || !allowedAdmin(data.user.id)) {
+              await auth.auth.signOut()
+              redirect('/admin/login?erro=permissao')
+            }
+
+            redirect('/admin/produtos')
+          }
+
+          export async function logout() {
+            const auth = adminAuth()
+            await auth.auth.signOut()
+            redirect('/admin/login')
+          }
+          ''',
+
+              'src/app/admin/login/page.tsx': r'''import Image from 'next/image'
+          import Link from 'next/link'
+          import { redirect } from 'next/navigation'
+          import { adminAuth, allowedAdmin } from '@/lib/admin-auth'
+          import { login } from '../actions'
+
+          interface Props {
+            searchParams?: { erro?: string }
+          }
+
+          export default async function AdminLogin({ searchParams }: Props) {
+            const auth = adminAuth()
+            const { data: { user } } = await auth.auth.getUser()
+
+            if (user?.email_confirmed_at && allowedAdmin(user.id)) {
+              redirect('/admin/produtos')
+            }
+
+            const message = searchParams?.erro === 'permissao'
+              ? 'Esta conta não tem acesso ao painel.'
+              : searchParams?.erro
+                ? 'Não foi possível entrar. Confira seu e-mail e sua senha.'
+                : ''
+
+            return (
+              <main className="flex min-h-screen items-center justify-center px-5 py-12">
+                <div className="w-full max-w-[420px]">
+                  <Image
+                    src="/logo-serenity.png"
+                    width={210}
+                    height={72}
+                    alt="Serenity Piercings"
+                    className="mx-auto mb-10 h-auto w-[190px]"
+                  />
+
+                  <div className="rounded-[28px] border border-[#E5DED3] bg-white p-6 shadow-[0_12px_55px_rgba(60,45,22,0.04)] sm:p-8">
+                    <p className="text-[10px] uppercase tracking-[0.2em] text-[#947B57]">
+                      Área administrativa
+                    </p>
+                    <h1 className="mt-2 text-[26px] font-medium tracking-[-0.035em]">
+                      Bem-vindo à Serenity
+                    </h1>
+                    <p className="mt-3 text-[13px] leading-6 text-[#81796C]">
+                      Entre com sua conta autorizada para acessar o catálogo.
+                    </p>
+
+                    {message && (
+                      <p role="alert" className="mt-5 rounded-2xl bg-[#F6EEE9] px-4 py-3 text-[12px] text-[#815940]">
+                        {message}
+                      </p>
+                    )}
+
+                    <form action={login} className="mt-6 space-y-4">
+                      <label className="block text-[12px] text-[#625B51]">
+                        E-mail
+                        <input
+                          name="email"
+                          type="email"
+                          required
+                          maxLength={254}
+                          autoComplete="username"
+                          autoCapitalize="none"
+                          className="mt-2 min-h-[48px] w-full rounded-2xl border border-[#E5DED3] bg-[#FCFBF8] px-4 text-[16px] outline-none focus:border-[#947B57]"
+                        />
+                      </label>
+
+                      <label className="block text-[12px] text-[#625B51]">
+                        Senha
+                        <input
+                          name="password"
+                          type="password"
+                          required
+                          maxLength={1024}
+                          autoComplete="current-password"
+                          className="mt-2 min-h-[48px] w-full rounded-2xl border border-[#E5DED3] bg-[#FCFBF8] px-4 text-[16px] outline-none focus:border-[#947B57]"
+                        />
+                      </label>
+
+                      <button
+                        type="submit"
+                        className="min-h-[48px] w-full rounded-full bg-[#292621] px-5 py-3 text-[13px] text-white transition-colors hover:bg-[#504638]"
+                      >
+                        Entrar no painel
+                      </button>
+                    </form>
+                  </div>
+
+                  <Link href="/" className="mt-6 block py-3 text-center text-[12px] text-[#81796C]">
+                    ← Voltar para a loja
+                  </Link>
+                </div>
+              </main>
+            )
+          }
+          ''',
+
+              'src/app/admin/loading.tsx': r'''export default function AdminLoading() {
+            return (
+              <div role="status" className="flex min-h-screen items-center justify-center gap-3 text-[13px] text-[#81796C]">
+                <span aria-hidden="true" className="h-5 w-5 animate-spin rounded-full border-2 border-[#D9CDBB] border-t-[#62513A] motion-reduce:animate-none" />
+                Carregando painel…
+              </div>
+            )
+          }
+          ''',
+
+              'src/app/admin/error.tsx': r''''use client'
+
+          import Link from 'next/link'
+
+          export default function AdminError({ reset }: { error: Error; reset: () => void }) {
+            return (
+              <main className="mx-auto max-w-lg px-6 py-20">
+                <h1 className="text-2xl font-medium">Não foi possível abrir o painel</h1>
+                <p className="mt-4 text-[13px] leading-6 text-[#81796C]">
+                  Tente novamente. Se continuar, confira a configuração de acesso do painel.
+                </p>
+                <button onClick={reset} className="mt-6 min-h-[44px] rounded-full bg-[#292621] px-6 py-3 text-sm text-white">
+                  Tentar novamente
+                </button>
+                <Link href="/" className="ml-4 text-[12px] text-[#81796C]">
+                  Voltar para a loja
+                </Link>
+              </main>
+            )
+          }
+          ''',
+
+              'src/app/admin/produtos/page.tsx': r'''import Link from 'next/link'
+          import { redirect } from 'next/navigation'
+          import { adminDatabase } from '@/lib/admin-auth'
+          import { logout } from '../actions'
+
+          interface Props {
+            searchParams?: Record<string, string | string[] | undefined>
+          }
+
+          interface AdminProduct {
+            id: string
+            woo_id: number | null
+            name: string
+            slug: string
+            sku: string | null
+            product_type: string
+            status: string
+            stock_status: string
+            regular_price: number | null
+          }
+
+          const PER_PAGE = 24
+
+          const value = (input: string | string[] | undefined) =>
+            Array.isArray(input) ? input[0] || '' : input || ''
+
+          const money = (input: number) =>
+            new Intl.NumberFormat('pt-BR', {
+              style: 'currency',
+              currency: 'BRL',
+            }).format(input)
+
+          export default async function AdminProducts({ searchParams = {} }: Props) {
+            const { db, user } = await adminDatabase()
+            const search = value(searchParams.q).trim().slice(0, 100)
+            const status = ['published', 'draft'].includes(value(searchParams.status))
+              ? value(searchParams.status)
+              : 'all'
+
+            const page = Math.min(
+              100000,
+              Math.max(1, Math.floor(Number(value(searchParams.page)) || 1))
+            )
+
+            const safe = search
+              .replace(/[^a-zA-Z0-9À-ÿ -]/g, ' ')
+              .replace(/\s+/g, ' ')
+              .trim()
+
+            function href(nextPage: number) {
+              const query = new URLSearchParams()
+              if (search) query.set('q', search)
+              if (status !== 'all') query.set('status', status)
+              if (nextPage > 1) query.set('page', String(nextPage))
+
+              return '/admin/produtos' +
+                (query.toString() ? `?${query}` : '')
+            }
+
+            let query = db.from('products').select(
+              'id,woo_id,name,slug,sku,product_type,status,stock_status,regular_price',
+              { count: 'exact' }
+            )
+
+            if (status !== 'all') query = query.eq('status', status)
+
+            if (safe) {
+              const numeric = /^\d{1,12}$/.test(safe)
+                ? `,woo_id.eq.${safe}`
+                : ''
+
+              query = query.or(
+                `name.ilike.%${safe}%,sku.ilike.%${safe}%${numeric}`
+              )
+            }
+
+            const [result, allCount, publishedCount, draftCount, variantCount] =
+              await Promise.all([
+                query
+                  .order('created_at', { ascending: false })
+                  .order('id')
+                  .range((page - 1) * PER_PAGE, page * PER_PAGE - 1),
+                db.from('products').select('id', { count: 'exact', head: true }),
+                db.from('products').select('id', { count: 'exact', head: true }).eq('status', 'published'),
+                db.from('products').select('id', { count: 'exact', head: true }).eq('status', 'draft'),
+                db.from('product_variants').select('id', { count: 'exact', head: true }),
+              ])
+
+            if (result.error?.code === 'PGRST103' && page > 1) {
+              redirect(href(1))
+            }
+
+            if (
+              [result, allCount, publishedCount, draftCount, variantCount]
+                .some((item) => item.error)
+            ) {
+              throw new Error('ADMIN_CATALOG_QUERY')
+            }
+
+            const products = (result.data || []) as AdminProduct[]
+            const total = result.count || 0
+            const totalPages = Math.max(1, Math.ceil(total / PER_PAGE))
+
+            return (
+              <>
+                <header className="border-b border-[#E5DED3] bg-white">
+                  <div className="mx-auto flex max-w-[1440px] flex-wrap items-center justify-between gap-4 px-5 py-4 sm:px-8">
+                    <div>
+                      <p className="text-[13px] font-medium tracking-[0.18em]">SERENITY</p>
+                      <p className="mt-1 text-[10px] text-[#947B57]">Administração da loja</p>
+                    </div>
+
+                    <div className="flex items-center gap-4">
+                      <Link href="/" target="_blank" rel="noopener noreferrer" className="text-[12px] text-[#81796C]">
+                        Ver loja ↗
+                      </Link>
+                      <form action={logout}>
+                        <button className="min-h-[40px] rounded-full border border-[#E5DED3] px-4 text-[12px]">
+                          Sair
+                        </button>
+                      </form>
+                    </div>
+                  </div>
+                </header>
+
+                <main className="mx-auto max-w-[1440px] px-5 py-7 sm:px-8 md:py-10">
+                  <div className="mb-7 flex flex-wrap items-end justify-between gap-3">
+                    <div>
+                      <p className="mb-2 text-[10px] uppercase tracking-[0.2em] text-[#947B57]">
+                        Catálogo
+                      </p>
+                      <h1 className="text-[28px] font-medium tracking-[-0.035em] md:text-[34px]">
+                        Seus produtos
+                      </h1>
+                      <p className="mt-2 text-[12px] text-[#81796C]">
+                        Consulte produtos publicados e rascunhos da Serenity.
+                      </p>
+                    </div>
+                    <p className="max-w-full break-all text-[11px] text-[#81796C]">
+                      {user.email}
+                    </p>
+                  </div>
+
+                  <div className="mb-7 grid grid-cols-2 gap-3 lg:grid-cols-4">
+                    {[
+                      ['Produtos', allCount.count],
+                      ['Publicados', publishedCount.count],
+                      ['Rascunhos', draftCount.count],
+                      ['Variações', variantCount.count],
+                    ].map(([label, count]) => (
+                      <div key={String(label)} className="rounded-[20px] border border-[#E5DED3] bg-white px-5 py-4">
+                        <p className="text-[11px] text-[#81796C]">{label}</p>
+                        <p className="mt-2 text-[26px] font-medium tracking-[-0.03em]">
+                          {Number(count || 0).toLocaleString('pt-BR')}
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+
+                  <section aria-label="Produtos do catálogo" className="overflow-hidden rounded-[24px] border border-[#E5DED3] bg-white">
+                    <form method="get" action="/admin/produtos" className="grid gap-3 border-b border-[#EDE7DF] p-4 sm:grid-cols-[1fr_170px_auto] sm:p-5">
+                      <label>
+                        <span className="sr-only">Buscar por nome, código ou ID</span>
+                        <input name="q" defaultValue={search} maxLength={100} placeholder="Buscar por nome, código ou ID…" className="min-h-[44px] w-full rounded-full border border-[#E5DED3] bg-[#FCFBF8] px-4 text-[16px] outline-none focus:border-[#947B57] sm:text-[13px]" />
+                      </label>
+
+                      <label>
+                        <span className="sr-only">Situação do produto</span>
+                        <select name="status" defaultValue={status} className="min-h-[44px] w-full rounded-full border border-[#E5DED3] bg-white px-4 text-[13px]">
+                          <option value="all">Todos os produtos</option>
+                          <option value="published">Publicados</option>
+                          <option value="draft">Rascunhos</option>
+                        </select>
+                      </label>
+
+                      <button className="min-h-[44px] rounded-full bg-[#292621] px-6 text-[12px] text-white">
+                        Buscar
+                      </button>
+                    </form>
+
+                    <div className="flex flex-wrap items-center justify-between gap-3 px-5 py-4 text-[11px] text-[#81796C]">
+                      <p>
+                        {total.toLocaleString('pt-BR')}{' '}
+                        {total === 1 ? 'produto encontrado' : 'produtos encontrados'}
+                      </p>
+                      {(search || status !== 'all') && (
+                        <Link href="/admin/produtos" className="underline underline-offset-4">
+                          Limpar busca
+                        </Link>
+                      )}
+                    </div>
+
+                    <div className="hidden grid-cols-[minmax(0,1fr)_110px_120px_110px] gap-5 border-y border-[#EDE7DF] bg-[#FCFBF8] px-5 py-3 text-[10px] uppercase tracking-[0.08em] text-[#81796C] md:grid">
+                      <span>Produto</span>
+                      <span>Situação</span>
+                      <span>Preço base</span>
+                      <span>Estoque</span>
+                    </div>
+
+                    {products.length ? products.map((product) => (
+                      <article key={product.id} className="grid gap-3 border-b border-[#F0EBE3] px-5 py-4 last:border-0 md:grid-cols-[minmax(0,1fr)_110px_120px_110px] md:items-center md:gap-5">
+                        <div className="min-w-0">
+                          <h2 className="text-[13px] font-medium leading-6">
+                            {product.name}
+                          </h2>
+                          <p className="mt-1 text-[10px] text-[#947B57]">
+                            ID {product.woo_id || '—'} ·{' '}
+                            {product.product_type === 'variable' ? 'Com variações' : 'Produto simples'}
+                            {product.sku ? ` · SKU ${product.sku}` : ''}
+                          </p>
+                          {product.status === 'published' && (
+                            <Link href={`/produto/${product.slug}`} target="_blank" rel="noopener noreferrer" prefetch={false} className="mt-2 inline-block py-1 text-[10px] text-[#81796C] underline underline-offset-4">
+                              Visualizar na loja ↗
+                            </Link>
+                          )}
+                        </div>
+
+                        <div>
+                          <span className={`inline-block rounded-full px-3 py-1.5 text-[10px] ${
+                            product.status === 'published'
+                              ? 'bg-[#EDF2EA] text-[#52654B]'
+                              : 'bg-[#F5EEDF] text-[#8A7045]'
+                          }`}>
+                            {product.status === 'published'
+                              ? 'Publicado'
+                              : product.status === 'draft'
+                                ? 'Rascunho'
+                                : product.status}
+                          </span>
+                        </div>
+
+                        <p className="text-[12px] text-[#625B51]">
+                          <span className="mr-2 text-[10px] text-[#947B57] md:hidden">
+                            Preço base:
+                          </span>
+                          {product.regular_price !== null
+                            ? money(Number(product.regular_price))
+                            : product.product_type === 'variable'
+                              ? 'Nas variações'
+                              : 'Não definido'}
+                        </p>
+
+                        <p className="text-[11px] text-[#81796C]">
+                          {product.stock_status === 'instock'
+                            ? 'Em estoque'
+                            : product.stock_status === 'onbackorder'
+                              ? 'Sob encomenda'
+                              : 'Sem estoque'}
+                        </p>
+                      </article>
+                    )) : (
+                      <p className="px-5 py-14 text-center text-[13px] text-[#81796C]">
+                        Nenhum produto encontrado. Experimente outra busca.
+                      </p>
+                    )}
+
+                    <nav aria-label="Paginação de produtos" className="flex flex-wrap items-center justify-between gap-4 border-t border-[#EDE7DF] px-5 py-4 text-[11px] text-[#81796C]">
+                      <span>Página {page} de {totalPages}</span>
+                      <div className="flex gap-3">
+                        {page > 1 && (
+                          <Link href={href(page - 1)} prefetch={false} className="inline-flex min-h-[40px] items-center rounded-full border border-[#E5DED3] px-4">
+                            ← Anterior
+                          </Link>
+                        )}
+                        {page < totalPages && (
+                          <Link href={href(page + 1)} prefetch={false} className="inline-flex min-h-[40px] items-center rounded-full border border-[#E5DED3] px-4">
+                            Próxima →
+                          </Link>
+                        )}
+                      </div>
+                    </nav>
+                  </section>
+                </main>
+              </>
+            )
+          }
+          ''',
+          }
+
+          package_path = root / 'package.json'
+          layout_path = root / 'src/app/layout.tsx'
+
+          if not package_path.is_file() or not layout_path.is_file():
+              raise SystemExit('Execute na raiz do projeto Serenity.')
+
+          existing = [
+              name for name in files
+              if (root / name).exists()
+          ]
+
+          if (root / 'middleware.ts').exists():
+              existing.append('middleware.ts')
+
+          if existing:
+              raise SystemExit(
+                  'Instalação interrompida para preservar arquivos existentes: '
+                  + ', '.join(existing)
+              )
+
+          source = layout_path.read_text(encoding='utf-8')
+
+          imports = [
+              "import Header from '@/components/layout/Header'",
+              "import Footer from '@/components/layout/Footer'",
+              "import CartDrawer from '@/components/cart/CartDrawer'",
+          ]
+
+          if not all(item in source for item in imports):
+              raise SystemExit(
+                  'O layout mudou. Nenhum arquivo foi sobrescrito; '
+                  'envie o layout atual para adaptação.'
+              )
+
+          for item in imports:
+              source = source.replace(item, '')
+
+          source = (
+              "import SiteChrome from '@/components/layout/SiteChrome'\n"
+              + source
+          )
+
+          source, count = re.subn(
+              r'<Header\s*/>\s*<main>\s*\{children\}\s*</main>\s*<Footer\s*/>\s*<CartDrawer\s*/>',
+              '<SiteChrome>{children}</SiteChrome>',
+              source,
+          )
+
+          if count != 1:
+              raise SystemExit(
+                  'Estrutura do layout diferente da esperada. '
+                  'Nenhuma alteração foi salva.'
+              )
+
+          package = json.loads(
+              package_path.read_text(encoding='utf-8')
+          )
+
+          package.setdefault('engines', {})['node'] = '22.x'
+
+          for name, content in files.items():
+              path = root / name
+              path.parent.mkdir(parents=True, exist_ok=True)
+              path.write_text(content, encoding='utf-8')
+
+          layout_path.write_text(source, encoding='utf-8')
+
+          package_path.write_text(
+              json.dumps(package, ensure_ascii=False, indent=2) + '\n',
+              encoding='utf-8',
+          )
+
+          print(
+              'Login e consulta administrativa preparados. '
+              'Nenhum produto foi alterado.'
+          )
+          PY
+
+      - name: Instalar autenticação
+        run: npm install --save-exact @supabase/ssr@0.12.7 @supabase/supabase-js@2.118.0
+
+      - name: Conferir TypeScript
+        run: npx tsc --noEmit --incremental false
+
+      - name: Conferir lint
+        run: npx next lint --no-cache
+
+      - name: Salvar painel
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src package.json package-lock.json
+          git commit -m "Adiciona login protegido e consulta do catálogo no admin"
+          git push

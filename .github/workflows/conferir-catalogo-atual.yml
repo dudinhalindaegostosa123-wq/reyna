@@ -1,0 +1,497 @@
+name: Conferir catálogo atual
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  conferir:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Baixar arquivo original para comparação
+        uses: actions/checkout@v4
+
+      - name: Conferir dados sem alterar produtos
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
+        run: |
+          python3 -u - <<'PY'
+          import csv
+          import json
+          import os
+          from collections import Counter, defaultdict
+          from decimal import Decimal, InvalidOperation
+          from pathlib import Path
+          from urllib.error import HTTPError, URLError
+          from urllib.parse import urlencode, urlsplit
+          from urllib.request import Request, urlopen
+
+          base = os.environ.get(
+              'SUPABASE_URL', ''
+          ).strip().rstrip('/')
+
+          key = os.environ.get(
+              'SUPABASE_SECRET_KEY', ''
+          ).strip()
+
+          parsed = urlsplit(base)
+
+          if (
+              not key
+              or parsed.scheme != 'https'
+              or not (parsed.hostname or '').endswith('.supabase.co')
+              or parsed.path
+              or parsed.query
+              or parsed.fragment
+              or parsed.username
+          ):
+              raise SystemExit(
+                  'Confira os Secrets SUPABASE_URL e SUPABASE_SECRET_KEY.'
+              )
+
+          def read_table(table, fields, order='id.asc'):
+              rows = []
+
+              while True:
+                  query = urlencode({
+                      'select': fields,
+                      'order': order,
+                      'limit': '500',
+                      'offset': str(len(rows)),
+                  })
+
+                  request = Request(
+                      f'{base}/rest/v1/{table}?{query}',
+                      headers={
+                          'apikey': key,
+                          'Accept': 'application/json',
+                      },
+                      method='GET',
+                  )
+
+                  with urlopen(request, timeout=45) as response:
+                      batch = json.load(response)
+
+                  if not isinstance(batch, list):
+                      raise SystemExit(
+                          f'Resposta inesperada ao consultar {table}.'
+                      )
+
+                  if not batch:
+                      return rows
+
+                  rows.extend(batch)
+
+          def number(value):
+              if value is None or str(value).strip() == '':
+                  return None
+
+              try:
+                  result = Decimal(str(value))
+                  return result if result.is_finite() else None
+              except InvalidOperation:
+                  return None
+
+          def text(value):
+              return ' '.join(
+                  str(value or '').split()
+              ).replace('|', '/')
+
+          try:
+              products = read_table(
+                  'products',
+                  'id,woo_id,name,slug,product_type,status,'
+                  'visibility,stock_status,stock_quantity',
+              )
+
+              variants = read_table(
+                  'product_variants',
+                  'id,woo_id,product_id,name,regular_price,'
+                  'sale_price,stock_status,stock_quantity,attributes',
+              )
+
+              media = read_table(
+                  'product_media',
+                  'id,product_id,variant_id,media_type,'
+                  'storage_path,source_url',
+              )
+
+              catalog = read_table(
+                  'store_catalog',
+                  'database_id,id,woo_id,name,slug,product_type,'
+                  'visibility,price,original_price,price_available,'
+                  'in_stock,storage_path,thumbnail_path',
+                  'database_id.asc',
+              )
+
+              try:
+                  failures = read_table(
+                      'media_import_failures',
+                      'source_url,error_message',
+                      'source_url.asc',
+                  )
+                  failure_note = ''
+              except HTTPError as error:
+                  failures = None
+                  failure_note = (
+                      'Não foi possível consultar as pendências: '
+                      f'HTTP {error.code}.'
+                  )
+
+          except HTTPError as error:
+              raise SystemExit(
+                  f'Falha na consulta do catálogo: HTTP {error.code}. '
+                  'Nenhum dado foi alterado.'
+              )
+          except URLError:
+              raise SystemExit(
+                  'Falha de conexão com o Supabase. '
+                  'Nenhum dado foi alterado.'
+              )
+
+          by_id = {row['id']: row for row in products}
+          by_variant = {row['id']: row for row in variants}
+
+          children = defaultdict(list)
+          for row in variants:
+              children[row['product_id']].append(row)
+
+          visible = [
+              row for row in catalog
+              if row['visibility'] in ('visible', 'catalog')
+          ]
+
+          slugs = Counter(
+              row['slug'] for row in products
+              if row.get('slug')
+          )
+
+          checks = [
+              (
+                  'Produtos visíveis sem foto principal',
+                  [
+                      row for row in visible
+                      if not row.get('storage_path')
+                      and not row.get('thumbnail_path')
+                  ],
+              ),
+              (
+                  'Produtos visíveis sem preço disponível — revisar',
+                  [
+                      row for row in visible
+                      if row.get('price_available') is not True
+                      or number(row.get('price')) is None
+                  ],
+              ),
+              (
+                  'Produtos visíveis com preço zero — revisar',
+                  [
+                      row for row in visible
+                      if number(row.get('price')) == 0
+                  ],
+              ),
+              (
+                  'Produtos visíveis com preço negativo',
+                  [
+                      row for row in visible
+                      if number(row.get('price')) is not None
+                      and number(row['price']) < 0
+                  ],
+              ),
+              (
+                  'Produtos variáveis sem variações',
+                  [
+                      row for row in products
+                      if row['product_type'] == 'variable'
+                      and not children[row['id']]
+                  ],
+              ),
+              (
+                  'Variações sem produto principal',
+                  [
+                      row for row in variants
+                      if row['product_id'] not in by_id
+                  ],
+              ),
+              (
+                  'Produtos com quantidade de estoque negativa',
+                  [
+                      row for row in products
+                      if number(row.get('stock_quantity')) is not None
+                      and number(row['stock_quantity']) < 0
+                  ],
+              ),
+              (
+                  'Variações com quantidade de estoque negativa',
+                  [
+                      row for row in variants
+                      if number(row.get('stock_quantity')) is not None
+                      and number(row['stock_quantity']) < 0
+                  ],
+              ),
+              (
+                  'Variações sem atributos — revisar',
+                  [
+                      row for row in variants
+                      if not row.get('attributes')
+                  ],
+              ),
+              (
+                  'Produtos com slug ausente ou repetido',
+                  [
+                      row for row in products
+                      if not row.get('slug')
+                      or slugs[row['slug']] > 1
+                  ],
+              ),
+              (
+                  'Mídias sem produto principal',
+                  [
+                      row for row in media
+                      if row['product_id'] not in by_id
+                  ],
+              ),
+              (
+                  'Mídias com variação ausente ou de outro produto',
+                  [
+                      row for row in media
+                      if row.get('variant_id')
+                      and (
+                          row['variant_id'] not in by_variant
+                          or by_variant[
+                              row['variant_id']
+                          ]['product_id'] != row['product_id']
+                      )
+                  ],
+              ),
+          ]
+
+          report = [
+              '# Conferência do catálogo',
+              '',
+              f'- Produtos cadastrados: **{len(products)}**',
+              '- Publicados: **'
+              + str(sum(
+                  row['status'] == 'published'
+                  for row in products
+              ))
+              + '**',
+              '- Rascunhos: **'
+              + str(sum(
+                  row['status'] == 'draft'
+                  for row in products
+              ))
+              + '**',
+              f'- Variações: **{len(variants)}**',
+              f'- Registros de mídia: **{len(media)}**',
+              f'- Produtos visíveis nas listagens: **{len(visible)}**',
+              '- Produtos visíveis marcados em estoque: **'
+              + str(sum(
+                  row['in_stock'] is True
+                  for row in visible
+              ))
+              + '**',
+              '- Pendências de imagem registradas: **'
+              + (
+                  str(len(failures))
+                  if failures is not None
+                  else 'não consultadas'
+              )
+              + '**',
+              '',
+          ]
+
+          originals = []
+          csv_path = Path('produtos.csv')
+
+          if csv_path.is_file():
+              with csv_path.open(
+                  encoding='utf-8-sig',
+                  newline='',
+              ) as handle:
+                  reader = csv.DictReader(handle)
+
+                  if not {'ID', 'Tipo', 'Nome'}.issubset(
+                      reader.fieldnames or []
+                  ):
+                      report.append(
+                          'CSV encontrado, mas os cabeçalhos '
+                          'não permitem a comparação.'
+                      )
+                  else:
+                      originals = list(reader)
+
+              if originals:
+                  expected_products = {
+                      row['ID'] for row in originals
+                      if row['Tipo'].split(',')[0].strip()
+                      != 'variation'
+                  }
+
+                  expected_variants = {
+                      row['ID'] for row in originals
+                      if row['Tipo'].split(',')[0].strip()
+                      == 'variation'
+                  }
+
+                  saved_products = {
+                      str(row['woo_id']) for row in products
+                      if row['woo_id'] is not None
+                  }
+
+                  saved_variants = {
+                      str(row['woo_id']) for row in variants
+                      if row['woo_id'] is not None
+                  }
+
+                  missing_products = (
+                      expected_products - saved_products
+                  )
+                  missing_variants = (
+                      expected_variants - saved_variants
+                  )
+
+                  report += [
+                      '## Comparação com o CSV',
+                      '',
+                      f'- Registros no CSV: **{len(originals)}**',
+                      '- Produtos do CSV não encontrados: '
+                      f'**{len(missing_products)}**',
+                      '- Variações do CSV não encontradas: '
+                      f'**{len(missing_variants)}**',
+                      '',
+                  ]
+
+                  missing = missing_products | missing_variants
+
+                  for row in originals:
+                      if row['ID'] in missing:
+                          report.append(
+                              f'- Ausente: ID {text(row["ID"])}'
+                              f' — {text(row["Nome"])}'
+                          )
+          else:
+              report += [
+                  'CSV não encontrado; comparação com o '
+                  'arquivo original não realizada.',
+                  '',
+              ]
+
+          report += ['## Pontos para conferir', '']
+
+          for title, rows in checks:
+              report.append(f'### {title}: {len(rows)}')
+              report.append('')
+
+              for row in rows[:12]:
+                  owner = by_id.get(
+                      row.get('product_id'),
+                      {},
+                  )
+
+                  name = (
+                      row.get('name')
+                      or owner.get('name')
+                      or row.get('source_url')
+                      or row.get('id')
+                  )
+
+                  identifier = (
+                      row.get('woo_id')
+                      if row.get('woo_id') is not None
+                      else row.get(
+                          'id',
+                          row.get('database_id'),
+                      )
+                  )
+
+                  report.append(
+                      f'- {text(identifier)} — {text(name)}'
+                  )
+
+              if len(rows) > 12:
+                  report.append(
+                      f'- Mais {len(rows) - 12} registros; '
+                      'a lista acima é uma amostra.'
+                  )
+
+              report.append('')
+
+          report += [
+              '## Imagens pendentes registradas',
+              '',
+          ]
+
+          if failures is None:
+              report.append(failure_note)
+          elif not failures:
+              report.append(
+                  'Nenhuma pendência registrada na tabela.'
+              )
+          else:
+              for failure in failures:
+                  source = failure['source_url']
+
+                  report += [
+                      f'- URL: {source}',
+                      '  - Registro anterior: '
+                      + text(
+                          failure.get('error_message')
+                      )[:250],
+                  ]
+
+                  affected = [
+                      row for row in originals
+                      if any(
+                          source in (row.get(field) or '')
+                          for field in [
+                              'Imagens',
+                              'Descrição',
+                              'Descrição curta',
+                          ]
+                      )
+                  ]
+
+                  for row in affected[:8]:
+                      report.append(
+                          f'  - CSV: ID {text(row["ID"])}'
+                          f' — {text(row["Nome"])}'
+                      )
+
+                  if not affected:
+                      report.append(
+                          '  - Sem correspondência literal '
+                          'no CSV disponível.'
+                      )
+
+          report += [
+              '',
+              'Consulta somente de leitura. Nenhum produto, '
+              'preço, estoque ou arquivo foi alterado.',
+              '',
+              'Preço indisponível, preço zero e quantidade '
+              'de estoque não definida exigem interpretação; '
+              'não são corrigidos automaticamente.',
+              '',
+              'As pendências são registros da migração. '
+              'Esta etapa não refaz downloads nem testa '
+              'a disponibilidade de cada imagem.',
+          ]
+
+          Path(
+              os.environ['GITHUB_STEP_SUMMARY']
+          ).write_text(
+              '\n'.join(report),
+              encoding='utf-8',
+          )
+
+          print(
+              'Conferência concluída. '
+              'Abra o Summary desta execução.'
+          )
+          PY

@@ -1,0 +1,26 @@
+import RestockQueue from '@/components/admin/RestockQueue'
+import EmailActionButton from '@/components/admin/EmailActionButton'
+import { adminDatabase } from '@/lib/admin-auth'
+import { emailConfigured, emailEnabled } from '@/lib/order-email-server'
+import { processPendingEmails, testEmailConfiguration, refreshShipmentNotifications } from './actions'
+export const dynamic = 'force-dynamic'
+export const maxDuration = 60
+const kinds: Record<string,string> = { shipping_undelivered: 'Entrega não concluída', shipping_paused: 'Envio pausado', shipping_suspended: 'Envio suspenso', legacy_undelivered: 'Entrega não concluída — pedido antigo', legacy_paused: 'Envio pausado — pedido antigo', legacy_suspended: 'Envio suspenso — pedido antigo', legacy_shipped: 'Postagem — pedido antigo', legacy_delivered: 'Entrega — pedido antigo', wholesale_requested: 'Solicitação de atacado — aviso à loja', wholesale_approved: 'Atacado aprovado — cliente', owner_paid: 'Nova compra — aviso à loja', paid: 'Pagamento aprovado — cliente', shipped: 'Postagem', delivered: 'Entrega' }
+const states: Record<string,string> = { pending: 'Na fila', sending: 'Enviando', sent: 'Aceito pelo servidor de e-mail', review: 'Conferir envio', failed: 'Falha — conferir configuração' }
+export default async function EmailsPage({ searchParams = {} }: { searchParams?: { teste?: string; rastreio?: string; rastreio_ref?: string } }) {
+  const { db } = await adminDatabase()
+  const result = await db.from('serenity_email_outbox_v1').select('id,kind,state,payload,created_at,sent_at,error_code').order('created_at', { ascending: false }).limit(50)
+  return <main className="mx-auto max-w-5xl space-y-6 px-5 py-10">
+    <h1 className="text-3xl">E-mails da loja</h1>
+    <p className="text-sm leading-6">Remetente: contato@serenitypiercings.com.br. Confirmação para o cliente, aviso de nova compra para a loja e atualizações de postagem e entrega para pedidos novos do site em produção. Também acompanha solicitações e aprovações de atacado.</p>
+    <div className="rounded-xl border bg-white p-5 text-sm leading-7"><p>Envio: {emailEnabled() ? 'Ativado em produção' : 'Desativado neste ambiente'}</p><p>Credenciais SMTP: {emailConfigured() ? 'Preenchidas — valide com o teste' : 'Pendentes'}</p><p>Fila no banco: {result.error ? 'Instalação pendente ou consulta indisponível' : 'Instalada'}</p></div>
+    <p className="text-xs leading-6 text-[#756B5D]">Confirmação de cadastro e recuperação de senha são enviadas pelo Supabase, com configuração SMTP própria. Os avisos de pedidos são enviados automaticamente após os eventos; o agendador tenta novamente os que permanecerem na fila. A frequência depende do agendamento instalado. A aceitação SMTP não garante chegada à caixa de entrada.</p>
+    {searchParams.teste && <p role="status" className="rounded-xl bg-white p-4 text-sm">{searchParams.teste === 'enviado' ? 'Mensagem de teste aceita pelo servidor. Confira contato@serenitypiercings.com.br e o spam.' : 'Falha no teste. Confira SMTP_USER, SMTP_PASSWORD e SERENITY_EMAIL_ENABLED na Vercel.'}</p>}
+    {searchParams.rastreio && <p role="status" className="rounded-xl bg-white p-4 text-sm">{searchParams.rastreio === 'atualizado' ? 'Lote de rastreamento consultado. Confira os avisos abaixo; pedidos sem mudança na transportadora permanecem no mesmo estado. Os demais envios seguem nos próximos lotes.' : searchParams.rastreio === 'instalacao-pendente' ? 'Consulta dos pedidos atuais concluída. Falta instalar o SQL 04 para incluir os envios do histórico.' : 'Não foi possível concluir a atualização. Confira CRON_SECRET, a integração do Melhor Envio e os logs de rastreamento antes de repetir.'}</p>}
+    {searchParams.rastreio === 'falha' && searchParams.rastreio_ref && /^[A-Z_]{3,60}$/.test(searchParams.rastreio_ref) && <p className="text-xs text-[#756B5D]">Referência: {searchParams.rastreio_ref}</p>}
+    <div className="flex flex-wrap gap-3"><form action={refreshShipmentNotifications}><EmailActionButton pendingLabel="Atualizando rastreio…">Atualizar rastreio e avisos</EmailActionButton></form><form action={testEmailConfiguration}><EmailActionButton pendingLabel="Enviando teste…">Testar envio para o e-mail da loja</EmailActionButton></form><form action={processPendingEmails}><EmailActionButton primary pendingLabel="Processando avisos…">Processar próximos avisos pendentes</EmailActionButton></form></div>
+    <p className="text-xs leading-6 text-[#756B5D]">“Conferir envio” significa que a entrega pode ter ocorrido antes de uma queda de conexão. Confira a caixa de saída com a equipe antes de qualquer reenvio. O sistema não repete esses avisos automaticamente.</p>
+    <div className="divide-y rounded-xl border bg-white">{!result.data?.length && <p className="p-5 text-sm">Nenhum aviso registrado. A instalação não dispara e-mails retroativos.</p>}{result.data?.map(row => <div key={row.id} className="space-y-1 p-5 text-sm"><p>{row.kind.startsWith('wholesale_') ? row.payload?.name || 'Cadastro de atacado' : `${row.kind.startsWith('legacy_') ? 'Pedido antigo' : 'Pedido'} #${row.payload?.number}`} · {kinds[row.kind] || row.kind}</p><p>{states[row.state] || row.state}</p>{row.error_code && <p className="text-xs text-[#756B5D]">Referência: {row.error_code}</p>}</div>)}</div>
+    <RestockQueue db={db}/>
+  </main>
+}

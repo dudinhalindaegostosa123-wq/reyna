@@ -1,0 +1,780 @@
+name: Instalar editor de produtos
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: instalar-editor-produtos
+  cancel-in-progress: false
+
+jobs:
+  instalar:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Instalar arquivos
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          root = Path.cwd()
+
+          files = {
+              'src/app/admin/produtos/[id]/actions.ts': r''''use server'
+
+          import { redirect } from 'next/navigation'
+          import { revalidatePath, revalidateTag } from 'next/cache'
+          import { adminDatabase } from '@/lib/admin-auth'
+          import { buildPayload } from '@/lib/admin-product-editor'
+          import type { ProductBundle, SaveState } from '@/lib/admin-product-editor'
+
+          export async function saveProduct(id: string, _previous: SaveState, form: FormData): Promise<SaveState> {
+            const { db } = await adminDatabase()
+
+            const { data, error } = await db.rpc('serenity_admin_read_product', {
+              p_product_id: id,
+            })
+
+            if (error || !data) {
+              return {
+                error: 'Não foi possível carregar o produto. Atualize a página e tente novamente.',
+              }
+            }
+
+            const bundle = data as ProductBundle
+            const version = form.get('version')
+
+            if (typeof version !== 'string' || version !== bundle.version) {
+              return {
+                error: 'Este produto mudou desde que você abriu a página. Copie suas alterações e recarregue antes de salvar.',
+              }
+            }
+
+            let payload: ReturnType<typeof buildPayload>
+
+            try {
+              payload = buildPayload(bundle, form)
+            } catch (validation) {
+              return {
+                error: validation instanceof Error
+                  ? validation.message
+                  : 'Confira os campos informados.',
+              }
+            }
+
+            const saved = await db.rpc('serenity_admin_save_product', {
+              p_product_id: id,
+              p_version: version,
+              p_payload: payload,
+            })
+
+            if (saved.error) {
+              return {
+                error: saved.error.code === '40001'
+                  ? 'O produto foi alterado por outra operação. Copie suas alterações e recarregue a página.'
+                  : 'Não foi possível salvar. Confira a instalação do SQL e tente novamente.',
+              }
+            }
+
+            revalidateTag('catalog')
+            revalidatePath('/admin/produtos')
+            revalidatePath(`/admin/produtos/${id}`)
+
+            if (typeof bundle.product.slug === 'string') {
+              revalidatePath(`/produto/${bundle.product.slug}`)
+            }
+
+            redirect(`/admin/produtos/${encodeURIComponent(id)}?salvo=1`)
+          }
+          ''',
+
+              'src/app/admin/produtos/[id]/page.tsx': r'''import Link from 'next/link'
+          import { notFound } from 'next/navigation'
+          import { adminDatabase } from '@/lib/admin-auth'
+          import type { ProductBundle } from '@/lib/admin-product-editor'
+          import ProductEditor from './ProductEditor'
+
+          interface Props {
+            params: { id: string }
+            searchParams?: { salvo?: string }
+          }
+
+          export default async function EditProduct({ params, searchParams = {} }: Props) {
+            const { db } = await adminDatabase()
+
+            const { data, error } = await db.rpc('serenity_admin_read_product', {
+              p_product_id: params.id,
+            })
+
+            if (error) throw new Error('ADMIN_PRODUCT_EDITOR_READ')
+            if (!data) notFound()
+
+            const bundle = data as ProductBundle
+
+            return (
+              <main className="mx-auto max-w-5xl px-4 py-6 sm:px-8 md:py-10">
+                <Link href="/admin/produtos" className="text-xs text-[#81796C]">
+                  ← Voltar aos produtos
+                </Link>
+
+                <p className="mt-7 text-[10px] uppercase tracking-[0.2em] text-[#947B57]">
+                  Serenity · Catálogo
+                </p>
+
+                <h1 className="mt-2 text-2xl font-medium md:text-3xl">
+                  Editar produto
+                </h1>
+
+                <p className="mb-6 mt-2 text-xs text-[#81796C]">
+                  ID {String(bundle.product.woo_id ?? bundle.product.id)} · As alterações salvas atualizam o catálogo da loja.
+                </p>
+
+                {searchParams.salvo === '1' && (
+                  <p role="status" className="mb-5 rounded-2xl bg-[#EAF1E5] p-4 text-sm text-[#42603A]">
+                    Produto salvo com sucesso.
+                  </p>
+                )}
+
+                <ProductEditor key={bundle.version} bundle={bundle} />
+              </main>
+            )
+          }
+          ''',
+
+              'src/app/admin/produtos/[id]/ProductEditor.tsx': r''''use client'
+
+          import { useFormState, useFormStatus } from 'react-dom'
+          import type { Commercial, EditableProduct, ProductBundle } from '@/lib/admin-product-editor'
+          import { saveProduct } from './actions'
+
+          const inputClass = 'mt-2 min-h-[44px] w-full rounded-xl border border-[#DFD7CB] bg-white px-3 py-2 text-[16px] outline-none focus:border-[#947B57] sm:text-sm'
+          const cardClass = 'rounded-[24px] border border-[#E5DED3] bg-white p-5 sm:p-7'
+
+          interface FieldProps {
+            name: string
+            label: string
+            value: unknown
+            long?: boolean
+            limit?: number
+          }
+
+          function Field({ name, label, value, long = false, limit = 300 }: FieldProps) {
+            const text = value == null ? '' : String(value)
+
+            return (
+              <label className="block text-xs text-[#625B51]">
+                {label}
+                {long ? (
+                  <textarea
+                    name={name}
+                    defaultValue={text}
+                    maxLength={limit}
+                    rows={5}
+                    className={inputClass}
+                  />
+                ) : (
+                  <input
+                    name={name}
+                    defaultValue={text}
+                    maxLength={limit}
+                    className={inputClass}
+                  />
+                )}
+              </label>
+            )
+          }
+
+          function CommercialFields({
+            value,
+            prefix,
+            variation = false,
+          }: {
+            value: Commercial
+            prefix: string
+            variation?: boolean
+          }) {
+            return (
+              <div className="mt-5 rounded-2xl bg-[#F8F5EF] p-4">
+                <p className="text-xs font-medium">
+                  Fornecedor e custo · Uso interno
+                </p>
+
+                <p className="mb-4 mt-1 text-[11px] leading-relaxed text-[#81796C]">
+                  Opcionais e protegidos do catálogo público.{' '}
+                  {variation
+                    ? 'Vazio: usar os dados do produto quando houver.'
+                    : 'Sem custo preenchido, a margem fica não informada.'}
+                </p>
+
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <Field
+                    name={`${prefix}supplier_name`}
+                    label="Fornecedor"
+                    value={value.supplier_name}
+                    limit={180}
+                  />
+                  <Field
+                    name={`${prefix}unit_cost`}
+                    label="Custo unitário (R$)"
+                    value={value.unit_cost}
+                    limit={40}
+                  />
+                </div>
+              </div>
+            )
+          }
+
+          function PriceStock({
+            row,
+            prefix,
+          }: {
+            row: EditableProduct
+            prefix: string
+          }) {
+            const scheduled = row.sale_starts_at || row.sale_ends_at
+
+            return (
+              <>
+                <div className="mt-5 grid gap-4 sm:grid-cols-2">
+                  <Field
+                    name={`${prefix}regular_price`}
+                    label="Preço base (R$)"
+                    value={row.regular_price}
+                    limit={40}
+                  />
+                  <Field
+                    name={`${prefix}sale_price`}
+                    label="Preço promocional (R$) · Opcional"
+                    value={row.sale_price}
+                    limit={40}
+                  />
+                  <Field
+                    name={`${prefix}stock_quantity`}
+                    label="Quantidade em estoque · Vazio: sem quantidade definida"
+                    value={row.stock_quantity}
+                    limit={40}
+                  />
+
+                  <label className="block text-xs text-[#625B51]">
+                    Situação do estoque
+                    <select
+                      name={`${prefix}stock_status`}
+                      defaultValue={row.stock_status}
+                      className={inputClass}
+                    >
+                      <option value="instock">Em estoque</option>
+                      <option value="outofstock">Sem estoque</option>
+                      <option value="onbackorder">Sob encomenda</option>
+                    </select>
+                  </label>
+                </div>
+
+                {Boolean(scheduled) && (
+                  <p className="mt-3 text-[11px] text-[#81796C]">
+                    A promoção possui agendamento importado, que será preservado ao salvar.
+                    {' '}Início:{' '}
+                    {row.sale_starts_at
+                      ? new Date(String(row.sale_starts_at)).toLocaleString('pt-BR', {
+                          timeZone: 'America/Sao_Paulo',
+                        })
+                      : 'não definido'}.
+                    {' '}Fim:{' '}
+                    {row.sale_ends_at
+                      ? new Date(String(row.sale_ends_at)).toLocaleString('pt-BR', {
+                          timeZone: 'America/Sao_Paulo',
+                        })
+                      : 'não definido'}.
+                  </p>
+                )}
+              </>
+            )
+          }
+
+          function Submit() {
+            const { pending } = useFormStatus()
+
+            return (
+              <button
+                disabled={pending}
+                className="min-h-[46px] rounded-full bg-[#292621] px-8 text-sm text-white disabled:opacity-50"
+              >
+                {pending ? 'Salvando…' : 'Salvar alterações'}
+              </button>
+            )
+          }
+
+          export default function ProductEditor({ bundle }: { bundle: ProductBundle }) {
+            const [state, action] = useFormState(
+              saveProduct.bind(null, String(bundle.product.id)),
+              { error: '' }
+            )
+
+            const p = bundle.product
+
+            return (
+              <form action={action} className="space-y-5">
+                <input type="hidden" name="version" value={bundle.version} />
+
+                <section className={cardClass}>
+                  <h2 className="mb-5 text-lg font-medium">
+                    Informações do produto
+                  </h2>
+
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    <Field name="p.name" label="Nome" value={p.name} />
+
+                    <Field
+                      name="p.sku"
+                      label="Código / SKU"
+                      value={p.sku}
+                      limit={180}
+                    />
+
+                    <label className="block text-xs text-[#625B51]">
+                      Publicação
+                      <select
+                        name="p.status"
+                        defaultValue={String(p.status)}
+                        className={inputClass}
+                      >
+                        <option value="published">Publicado</option>
+                        <option value="draft">Rascunho</option>
+                      </select>
+                    </label>
+                  </div>
+
+                  <div className="mt-5 space-y-4">
+                    <Field
+                      name="p.short_description"
+                      label="Descrição curta"
+                      value={p.short_description}
+                      long
+                      limit={20000}
+                    />
+
+                    <Field
+                      name="p.description"
+                      label="Descrição completa · HTML existente é preservado"
+                      value={p.description}
+                      long
+                      limit={500000}
+                    />
+                  </div>
+                </section>
+
+                <section className={cardClass}>
+                  <h2 className="text-lg font-medium">
+                    Preços e estoque do produto
+                  </h2>
+
+                  {bundle.variants.length > 0 && (
+                    <p className="mt-2 text-xs text-[#81796C]">
+                      Os preços das opções são editados nas variações abaixo.
+                      A quantidade do produto pode limitar o estoque total das variações.
+                    </p>
+                  )}
+
+                  <PriceStock row={p} prefix="p." />
+                  <CommercialFields value={bundle.commercial} prefix="p." />
+                </section>
+
+                {bundle.variants.length > 0 && (
+                  <section className={cardClass}>
+                    <h2 className="mb-4 text-lg font-medium">
+                      Variações ({bundle.variants.length})
+                    </h2>
+
+                    <div className="space-y-3">
+                      {bundle.variants.map((variant) => {
+                        const prefix = `v.${variant.id}.`
+
+                        return (
+                          <details
+                            key={String(variant.id)}
+                            className="rounded-2xl border border-[#E5DED3] p-4"
+                          >
+                            <summary className="cursor-pointer text-sm font-medium">
+                              {variant.name} · ID {String(variant.woo_id ?? variant.id)}
+                            </summary>
+
+                            <div className="mt-4 grid gap-4 sm:grid-cols-2">
+                              <Field
+                                name={`${prefix}name`}
+                                label="Nome da variação"
+                                value={variant.name}
+                              />
+
+                              <Field
+                                name={`${prefix}sku`}
+                                label="SKU da variação"
+                                value={variant.sku}
+                                limit={180}
+                              />
+                            </div>
+
+                            <p className="mt-3 text-xs text-[#81796C]">
+                              {Object.entries(
+                                (variant.attributes || {}) as Record<string, unknown>
+                              )
+                                .map(([key, value]) => `${key}: ${String(value)}`)
+                                .join(' · ') || 'Sem atributos informados no cadastro original'}
+                            </p>
+
+                            <label className="mt-4 flex items-center gap-2 text-xs">
+                              <input
+                                type="checkbox"
+                                name={`${prefix}enabled`}
+                                defaultChecked={variant.enabled !== false}
+                              />
+                              Variação habilitada
+                            </label>
+
+                            <PriceStock row={variant} prefix={prefix} />
+
+                            <CommercialFields
+                              value={variant.commercial || {}}
+                              prefix={prefix}
+                              variation
+                            />
+                          </details>
+                        )
+                      })}
+                    </div>
+                  </section>
+                )}
+
+                <section className={cardClass}>
+                  <h2 className="mb-5 text-lg font-medium">
+                    SEO do produto
+                  </h2>
+
+                  <div className="space-y-4">
+                    <Field
+                      name="p.seo_title"
+                      label="Título para os buscadores · Opcional"
+                      value={p.seo_title}
+                    />
+
+                    <Field
+                      name="p.seo_description"
+                      label="Descrição para os buscadores · Opcional"
+                      value={p.seo_description}
+                      long
+                      limit={2000}
+                    />
+                  </div>
+                </section>
+
+                {state.error && (
+                  <p role="alert" className="rounded-2xl bg-red-50 p-4 text-sm text-red-800">
+                    {state.error}
+                  </p>
+                )}
+
+                <div className="sticky bottom-0 flex flex-wrap items-center justify-between gap-3 border-t border-[#E5DED3] bg-[#FAFAF8] py-4">
+                  <p className="text-xs text-[#81796C]">
+                    Custo vazio significa não informado. Zero é um custo informado.
+                  </p>
+                  <Submit />
+                </div>
+              </form>
+            )
+          }
+          ''',
+
+              'src/lib/admin-product-editor.ts': r'''export interface Commercial {
+            supplier_name?: string | null
+            unit_cost?: number | null
+          }
+
+          export interface EditableProduct {
+            id: string
+            name: string
+            sku: string | null
+            regular_price: number | null
+            sale_price: number | null
+            stock_quantity: number | null
+            stock_status: string
+            commercial?: Commercial
+            enabled?: boolean
+            [key: string]: unknown
+          }
+
+          export interface ProductBundle {
+            product: EditableProduct
+            commercial: Commercial
+            variants: EditableProduct[]
+            version: string
+          }
+
+          export interface SaveState {
+            error: string
+          }
+
+          export function amount(input: string, label: string): number | null {
+            const value = input.trim()
+            if (!value) return null
+
+            const brazilian = /^(?:\d+|\d{1,3}(?:\.\d{3})+),\d{1,2}$/.test(value)
+
+            if (!brazilian && !/^\d+(?:\.\d{1,2})?$/.test(value)) {
+              throw new Error(`${label}: use valores como 150,00, sem R$ ou sinal negativo.`)
+            }
+
+            const normalized = brazilian
+              ? value.replace(/\./g, '').replace(',', '.')
+              : value
+
+            const result = Math.round(Number(normalized) * 100) / 100
+
+            if (!Number.isFinite(result) || result > 9999999.99) {
+              throw new Error(`${label}: valor acima do limite.`)
+            }
+
+            return result
+          }
+
+          export function quantity(input: string): number | null {
+            if (!input.trim()) return null
+
+            if (!/^\d+$/.test(input.trim()) || Number(input) > 100000000) {
+              throw new Error(
+                'Estoque: informe um número inteiro entre 0 e 100.000.000, ou deixe vazio.'
+              )
+            }
+
+            return Number(input)
+          }
+
+          const PRODUCT_FIELDS = [
+            'name',
+            'sku',
+            'short_description',
+            'description',
+            'material',
+            'categories',
+            'tags',
+            'status',
+            'visibility',
+            'featured',
+            'sold_individually',
+            'regular_price',
+            'sale_price',
+            'sale_starts_at',
+            'sale_ends_at',
+            'stock_status',
+            'stock_quantity',
+            'seo_title',
+            'seo_description',
+          ]
+
+          const VARIANT_FIELDS = [
+            'id',
+            'name',
+            'sku',
+            'attributes',
+            'regular_price',
+            'sale_price',
+            'sale_starts_at',
+            'sale_ends_at',
+            'stock_status',
+            'stock_quantity',
+            'enabled',
+          ]
+
+          export function buildPayload(bundle: ProductBundle, form: FormData) {
+            function read(key: string, limit = 300): string {
+              const input = form.get(key)
+
+              if (typeof input !== 'string' || input.length > limit) {
+                throw new Error(`Campo ausente ou muito longo: ${key}`)
+              }
+
+              return input.trim()
+            }
+
+            function edit(row: EditableProduct, prefix: string, fields: string[]) {
+              const result: Record<string, unknown> = {}
+
+              fields.forEach((field) => {
+                result[field] = row[field] ?? null
+              })
+
+              result.name = read(`${prefix}name`)
+
+              if (!result.name) {
+                throw new Error('Preencha o nome do produto e de cada variação.')
+              }
+
+              result.sku = read(`${prefix}sku`, 180) || null
+
+              result.regular_price = amount(
+                read(`${prefix}regular_price`, 40),
+                'Preço base'
+              )
+
+              result.sale_price = amount(
+                read(`${prefix}sale_price`, 40),
+                'Preço promocional'
+              )
+
+              const pricesChanged =
+                result.regular_price !== row.regular_price ||
+                result.sale_price !== row.sale_price
+
+              if (
+                pricesChanged &&
+                result.sale_price !== null &&
+                (
+                  result.regular_price === null ||
+                  Number(result.sale_price) >= Number(result.regular_price)
+                )
+              ) {
+                throw new Error(
+                  'O preço promocional deve ser menor que o preço base. Deixe vazio para remover a promoção.'
+                )
+              }
+
+              result.stock_quantity = quantity(
+                read(`${prefix}stock_quantity`, 40)
+              )
+
+              result.stock_status = read(`${prefix}stock_status`, 30)
+
+              if (
+                !['instock', 'outofstock', 'onbackorder'].includes(
+                  String(result.stock_status)
+                )
+              ) {
+                throw new Error('Situação de estoque inválida.')
+              }
+
+              return result
+            }
+
+            function commercial(prefix: string) {
+              return {
+                supplier_name: read(`${prefix}supplier_name`, 180) || null,
+                unit_cost: amount(
+                  read(`${prefix}unit_cost`, 40),
+                  'Custo unitário'
+                ),
+              }
+            }
+
+            const product = edit(bundle.product, 'p.', PRODUCT_FIELDS)
+
+            product.status = read('p.status', 30)
+
+            if (!['published', 'draft'].includes(String(product.status))) {
+              throw new Error('Situação de publicação inválida.')
+            }
+
+            product.short_description = read('p.short_description', 20000)
+            product.description = read('p.description', 500000)
+            product.seo_title = read('p.seo_title', 300) || null
+            product.seo_description = read('p.seo_description', 2000) || null
+
+            const variants = bundle.variants.map((row) => {
+              const prefix = `v.${row.id}.`
+
+              return {
+                ...edit(row, prefix, VARIANT_FIELDS),
+                enabled: form.get(`${prefix}enabled`) === 'on',
+                commercial: commercial(prefix),
+              }
+            })
+
+            return {
+              product,
+              commercial: commercial('p.'),
+              variants,
+            }
+          }
+          ''',
+          }
+
+          auth = root / 'src/lib/admin-auth.ts'
+          listing = root / 'src/app/admin/produtos/page.tsx'
+
+          if (
+              not auth.exists()
+              or 'adminDatabase' not in auth.read_text(encoding='utf-8')
+              or not listing.exists()
+          ):
+              raise SystemExit('Instale primeiro o painel administrativo existente.')
+
+          source = listing.read_text(encoding='utf-8')
+
+          anchor = r"\{product\.status\s*===\s*'published'\s*&&"
+
+          edit_link = '<Link href={`/admin/produtos/${product.id}`} prefetch={false} className="mr-4 mt-2 inline-block py-1 text-xs font-medium text-[#625B51] underline underline-offset-4">Editar produto</Link>'
+
+          if '/admin/produtos/${product.id}' not in source:
+              if len(re.findall(anchor, source)) != 1:
+                  raise SystemExit(
+                      'A listagem mudou. Nenhum arquivo foi alterado; envie o arquivo atual para adaptar o link de edição.'
+                  )
+
+              source = re.sub(
+                  anchor,
+                  lambda match: edit_link + match.group(0),
+                  source,
+                  count=1,
+              )
+
+          for name, content in files.items():
+              target = root / name
+
+              if target.exists() and target.read_text(encoding='utf-8') != content:
+                  raise SystemExit(
+                      'Arquivo já existe com outro conteúdo: '
+                      + name
+                      + '. Nenhum arquivo foi alterado.'
+                  )
+
+          for name, content in files.items():
+              target = root / name
+              target.parent.mkdir(parents=True, exist_ok=True)
+              target.write_text(content, encoding='utf-8')
+
+          listing.write_text(source, encoding='utf-8')
+
+          print('Editor instalado. Autenticação, imagens e catálogo público preservados.')
+          PY
+
+      - name: Preparar Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Instalar dependências
+        run: npm ci --ignore-scripts
+
+      - name: Conferir TypeScript
+        run: npx tsc --noEmit
+
+      - name: Conferir lint
+        run: npx next lint --no-cache
+
+      - name: Salvar atualização
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/lib/admin-product-editor.ts src/app/admin/produtos
+
+          if git diff --cached --quiet; then
+            echo "Editor já instalado."
+          else
+            git commit -m "Adicionar edição segura de produtos, variações e custos opcionais"
+            git push origin HEAD:main
+          fi

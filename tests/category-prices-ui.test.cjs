@@ -1,0 +1,23 @@
+const {test}=require('node:test'),assert=require('node:assert/strict')
+const {randomUUID}=require('node:crypto')
+const {renderer,nodes}=require('./helpers/render.cjs')
+test('category adjustment rejects a negative magnitude and requires a valid preview before applying',async()=>{
+ const calls=[],preview={category:'argolas',percent:-10,count:2,fingerprint:'a'.repeat(32),examples:[{name:'Argola',before:100,after:90}]}
+ const view=renderer('src/app/admin/precos/CategoryPrices.tsx',{'next/navigation':{useRouter:()=>({refresh(){}})},'./actions':{categoryPrices:async(...args)=>{calls.push(args);return {preview}}},'@/lib/data':{formatPrice:value=>String(value)}},{crypto:{randomUUID}})
+ const props={categories:[{slug:'argolas',name:'Argolas'},{slug:'outros',name:'Outros'}]}
+ let tree=view.render(props)
+ nodes(tree,node=>node.type==='select')[0].props.onChange({target:{value:'argolas'}})
+ nodes(tree,node=>node.type==='input')[0].props.onChange({target:{value:'-10'}})
+ tree=view.render(props)
+ await nodes(tree,node=>node.type==='button')[0].props.onClick()
+ assert.equal(calls.length,0)
+ tree=view.render(props);assert.match(JSON.stringify(tree),/percentual positivo/)
+ nodes(tree,node=>node.type==='input')[0].props.onChange({target:{value:'10'}})
+ tree=view.render(props);await nodes(tree,node=>node.type==='button')[0].props.onClick()
+ assert.equal(calls[0][0],'argolas');assert.equal(calls[0][1],-10);assert.equal(calls[0][2],undefined)
+ tree=view.render(props);assert.equal(nodes(tree,node=>node.type==='button').length,2)
+ await nodes(tree,node=>node.type==='button')[1].props.onClick()
+ assert.match(calls[1][2],/^[a-f0-9-]{36}$/);assert.equal(calls[1][3],preview.fingerprint)
+ tree=view.render(props);assert.equal(nodes(tree,node=>node.type==='button').length,1)
+ assert.match(JSON.stringify(tree),/Preços atualizados/)
+})

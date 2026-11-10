@@ -1,0 +1,590 @@
+name: Importar dados do catalogo
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: importar-catalogo-supabase
+  cancel-in-progress: false
+
+jobs:
+  importar:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Importar produtos e variacoes
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import csv
+          import json
+          import math
+          import os
+          import re
+          import time
+          import urllib.error
+          import urllib.request
+          from datetime import datetime
+          from zoneinfo import ZoneInfo
+
+          csv.field_size_limit(20_000_000)
+
+          URL = os.environ["SUPABASE_URL"].strip().rstrip("/")
+          KEY = os.environ["SUPABASE_SECRET_KEY"].strip()
+
+          if not KEY.startswith("sb_secret_"):
+              raise SystemExit("Confira o Secret SUPABASE_SECRET_KEY.")
+
+          def api(path, payload=None, prefer=None):
+              headers = {
+                  "apikey": KEY,
+                  "Accept": "application/json",
+              }
+
+              if prefer:
+                  headers["Prefer"] = prefer
+
+              body = None
+
+              if payload is not None:
+                  headers["Content-Type"] = "application/json"
+                  body = json.dumps(
+                      payload,
+                      ensure_ascii=False,
+                      allow_nan=False,
+                  ).encode("utf-8")
+
+              for attempt in range(4):
+                  request = urllib.request.Request(
+                      URL + path,
+                      data=body,
+                      headers=headers,
+                      method="POST" if payload is not None else "GET",
+                  )
+
+                  try:
+                      with urllib.request.urlopen(
+                          request,
+                          timeout=90,
+                      ) as response:
+                          data = response.read()
+                          return json.loads(data) if data else None
+
+                  except urllib.error.HTTPError as error:
+                      detail = error.read().decode(
+                          "utf-8",
+                          errors="replace",
+                      ).replace(KEY, "[chave protegida]")
+
+                      if (
+                          error.code in (429, 500, 502, 503, 504)
+                          and attempt < 3
+                      ):
+                          time.sleep(2 ** (attempt + 1))
+                          continue
+
+                      raise SystemExit(
+                          f"Supabase HTTP {error.code}: {detail[:900]}"
+                      )
+
+                  except urllib.error.URLError:
+                      if attempt < 3:
+                          time.sleep(2 ** (attempt + 1))
+                          continue
+
+                      raise SystemExit(
+                          "Falha de rede ao acessar o Supabase."
+                      )
+
+          def batches(items, size=100):
+              for offset in range(0, len(items), size):
+                  yield items[offset:offset + size]
+
+          def text(row, field):
+              return (row.get(field) or "").strip()
+
+          def kind(row):
+              return text(row, "Tipo").split(",")[0].strip()
+
+          def number(value):
+              value = (value or "").strip()
+
+              if not value:
+                  return None
+
+              if "," in value:
+                  value = value.replace(".", "").replace(",", ".")
+
+              result = float(value)
+
+              if not math.isfinite(result):
+                  raise ValueError("Valor numérico inválido.")
+
+              return result
+
+          def amount(value):
+              result = number(value)
+
+              if result is not None and result < 0:
+                  raise ValueError(
+                      "Preço ou peso negativo encontrado."
+                  )
+
+              return result
+
+          def stock(row):
+              value = number(row.get("Estoque"))
+
+              if value is None:
+                  return None
+
+              if not value.is_integer():
+                  raise ValueError(
+                      "Quantidade fracionada no estoque."
+                  )
+
+              return max(0, int(value))
+
+          def stock_status(row):
+              value = text(row, "Em estoque?").lower()
+
+              if value in ("1", "instock"):
+                  return "instock"
+
+              if value in ("backorder", "onbackorder"):
+                  return "onbackorder"
+
+              return "outofstock"
+
+          def backorders(row):
+              value = text(
+                  row,
+                  "São permitidas encomendas?",
+              ).lower()
+
+              mapping = {
+                  "": "no",
+                  "0": "no",
+                  "no": "no",
+                  "1": "notify",
+                  "notify": "notify",
+                  "2": "yes",
+                  "yes": "yes",
+              }
+
+              if value not in mapping:
+                  raise ValueError(
+                      "Valor de encomendas não reconhecido."
+                  )
+
+              return mapping[value]
+
+          def date_value(value):
+              value = (value or "").strip()
+
+              if not value:
+                  return None
+
+              normalized = re.sub(
+                  r"([ T])(\d):",
+                  r"\g<1>0\2:",
+                  value,
+                  count=1,
+              )
+
+              parsed = datetime.fromisoformat(
+                  normalized.replace("Z", "+00:00")
+              )
+
+              if parsed.tzinfo is None:
+                  parsed = parsed.replace(
+                      tzinfo=ZoneInfo("America/Sao_Paulo")
+                  )
+
+              return parsed.isoformat()
+
+          def split_values(value):
+              return [
+                  part.replace("\\,", ",").strip()
+                  for part in re.split(
+                      r"(?<!\\),",
+                      value or "",
+                  )
+                  if part.strip()
+              ]
+
+          def attributes(row):
+              result = []
+
+              for index in range(1, 5):
+                  name = text(
+                      row,
+                      f"Nome do atributo {index}",
+                  )
+                  value = text(
+                      row,
+                      f"Valores do atributo {index}",
+                  )
+
+                  if name:
+                      result.append({
+                          "name": name,
+                          "values": split_values(value),
+                          "visible": text(
+                              row,
+                              f"Visibilidade do atributo {index}",
+                          ) == "1",
+                          "global": text(
+                              row,
+                              f"Atributo global {index}",
+                          ) == "1",
+                      })
+
+              return result
+
+          def variant_attributes(row):
+              result = {}
+
+              for index in range(1, 5):
+                  name = text(
+                      row,
+                      f"Nome do atributo {index}",
+                  )
+
+                  if name:
+                      result[name] = text(
+                          row,
+                          f"Valores do atributo {index}",
+                      )
+
+              return result
+
+          def prices(row):
+              return {
+                  "regular_price": amount(
+                      row.get("Preço")
+                  ),
+                  "sale_price": amount(
+                      row.get("Preço promocional")
+                  ),
+                  "sale_starts_at": date_value(
+                      row.get(
+                          "Data de preço promocional começa em"
+                      )
+                  ),
+                  "sale_ends_at": date_value(
+                      row.get(
+                          "Data de preço promocional termina em"
+                      )
+                  ),
+                  "stock_status": stock_status(row),
+                  "stock_quantity": stock(row),
+                  "backorders": backorders(row),
+              }
+
+          with open(
+              "produtos.csv",
+              encoding="utf-8-sig",
+              newline="",
+          ) as file:
+              rows = list(csv.DictReader(file))
+
+          if not rows or any(None in row for row in rows):
+              raise SystemExit(
+                  "O CSV está vazio ou tem colunas inconsistentes."
+              )
+
+          parents = [
+              row for row in rows
+              if kind(row) in (
+                  "simple",
+                  "variable",
+                  "grouped",
+                  "external",
+              )
+          ]
+
+          children = [
+              row for row in rows
+              if kind(row) == "variation"
+          ]
+
+          if len(parents) + len(children) != len(rows):
+              raise SystemExit(
+                  "Há tipos de registro ainda não reconhecidos."
+              )
+
+          ids = [int(row["ID"]) for row in rows]
+
+          if len(set(ids)) != len(ids):
+              raise SystemExit(
+                  "Há IDs duplicados no CSV."
+              )
+
+          references = {}
+
+          for row in parents:
+              woo_id = int(row["ID"])
+              references["id:" + str(woo_id)] = woo_id
+              sku = text(row, "SKU")
+
+              if sku:
+                  if (
+                      sku in references
+                      and references[sku] != woo_id
+                  ):
+                      raise SystemExit(
+                          "Há SKUs de produto duplicados."
+                      )
+
+                  references[sku] = woo_id
+
+          for row in children:
+              if text(row, "Ascendente") not in references:
+                  raise SystemExit(
+                      "Variação sem produto correspondente: "
+                      + row["ID"]
+                  )
+
+          product_payload = []
+          variant_payload = []
+
+          for row in parents:
+              specs = attributes(row)
+
+              material = next(
+                  (
+                      ", ".join(attribute["values"])
+                      for attribute in specs
+                      if attribute["name"]
+                          .rstrip(":")
+                          .strip()
+                          .lower() == "material"
+                  ),
+                  text(
+                      row,
+                      "Metadado: fb_material",
+                  ),
+              )
+
+              related = []
+
+              for field in ("Upsells", "Venda cruzada"):
+                  for reference in split_values(row.get(field)):
+                      if reference in references:
+                          related.append(
+                              references[reference]
+                          )
+
+              visibility = text(
+                  row,
+                  "Visibilidade no catálogo",
+              ) or "visible"
+
+              if visibility not in (
+                  "visible",
+                  "catalog",
+                  "search",
+                  "hidden",
+              ):
+                  raise SystemExit(
+                      "Visibilidade não reconhecida no produto "
+                      + row["ID"]
+                  )
+
+              product_payload.append({
+                  "woo_id": int(row["ID"]),
+                  "slug": "importado-" + row["ID"],
+                  "name": text(row, "Nome"),
+                  "product_type": kind(row),
+                  "status": (
+                      "published"
+                      if text(row, "Publicado") == "1"
+                      else "draft"
+                  ),
+                  "visibility": visibility,
+                  "sku": text(row, "SKU") or None,
+                  "short_description": (
+                      row.get("Descrição curta") or ""
+                  ),
+                  "description": (
+                      row.get("Descrição") or ""
+                  ),
+                  "material": material,
+                  "categories": split_values(
+                      row.get("Categorias")
+                  ),
+                  "tags": split_values(
+                      row.get("Tags")
+                  ),
+                  "attributes": specs,
+                  **prices(row),
+                  "sold_individually": text(
+                      row,
+                      "Vendido individualmente?",
+                  ) == "1",
+                  "weight_g": amount(
+                      row.get("Peso (g)")
+                  ),
+                  "dimensions": {
+                      "length_cm": amount(
+                          row.get("Comprimento (cm)")
+                      ),
+                      "width_cm": amount(
+                          row.get("Largura (cm)")
+                      ),
+                      "height_cm": amount(
+                          row.get("Altura (cm)")
+                      ),
+                  },
+                  "featured": text(
+                      row,
+                      "Em destaque?",
+                  ) == "1",
+                  "seo_title": text(
+                      row,
+                      "Metadado: rank_math_title",
+                  ) or None,
+                  "seo_description": text(
+                      row,
+                      "Metadado: rank_math_description",
+                  ) or None,
+                  "related_woo_ids": sorted(
+                      set(related)
+                  ),
+              })
+
+          for row in children:
+              variant_payload.append({
+                  "woo_id": int(row["ID"]),
+                  "parent_woo_id": references[
+                      text(row, "Ascendente")
+                  ],
+                  "name": text(row, "Nome"),
+                  "sku": text(row, "SKU") or None,
+                  "enabled": text(
+                      row,
+                      "Publicado",
+                  ) == "1",
+                  "attributes": variant_attributes(row),
+                  **prices(row),
+                  "position": int(
+                      number(row.get("Posição")) or 0
+                  ),
+              })
+
+          originals = [
+              {
+                  "woo_id": int(row["ID"]),
+                  "row_type": kind(row),
+                  "original_data": row,
+              }
+              for row in rows
+          ]
+
+          print(
+              "CSV validado:",
+              len(parents),
+              "produtos e",
+              len(children),
+              "variações.",
+          )
+
+          for batch in batches(originals):
+              api(
+                  "/rest/v1/product_import_sources"
+                  "?on_conflict=woo_id",
+                  batch,
+                  "resolution=merge-duplicates,return=minimal",
+              )
+
+          print("Registros originais preservados.")
+
+          product_ids = {}
+
+          for batch in batches(product_payload):
+              saved = api(
+                  "/rest/v1/products"
+                  "?on_conflict=woo_id&select=id,woo_id",
+                  batch,
+                  "resolution=merge-duplicates,return=representation",
+              )
+
+              for product in saved:
+                  product_ids[
+                      int(product["woo_id"])
+                  ] = product["id"]
+
+              print(
+                  "Produtos gravados:",
+                  len(product_ids),
+              )
+
+          if len(product_ids) != len(parents):
+              raise SystemExit(
+                  "A quantidade de produtos gravados não confere."
+              )
+
+          for variant in variant_payload:
+              parent_id = variant.pop("parent_woo_id")
+              variant["product_id"] = product_ids[parent_id]
+
+          saved_variants = 0
+
+          for batch in batches(variant_payload):
+              saved = api(
+                  "/rest/v1/product_variants"
+                  "?on_conflict=woo_id&select=id,woo_id",
+                  batch,
+                  "resolution=merge-duplicates,return=representation",
+              )
+
+              saved_variants += len(saved)
+
+              print(
+                  "Variações gravadas:",
+                  saved_variants,
+              )
+
+          if saved_variants != len(children):
+              raise SystemExit(
+                  "A quantidade de variações gravadas não confere."
+              )
+
+          published = sum(
+              product["status"] == "published"
+              for product in product_payload
+          )
+
+          summary = "\n".join([
+              "# Dados importados no Supabase",
+              "",
+              f"- Produtos: **{len(product_ids)}**",
+              f"- Publicados: **{published}**",
+              f"- Rascunhos: **{len(product_ids) - published}**",
+              f"- Variações: **{saved_variants}**",
+              f"- Registros originais preservados: **{len(originals)}**",
+              "",
+              "Fotos e vídeos serão transferidos na próxima etapa.",
+              "A loja ainda utiliza a amostra local de três produtos.",
+          ])
+
+          with open(
+              os.environ["GITHUB_STEP_SUMMARY"],
+              "w",
+              encoding="utf-8",
+          ) as file:
+              file.write(summary)
+
+          print("Importação dos dados concluída.")
+          PY

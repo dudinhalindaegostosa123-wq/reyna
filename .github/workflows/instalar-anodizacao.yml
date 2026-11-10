@@ -1,0 +1,680 @@
+name: Instalar anodizacao no carrinho
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: instalar-anodizacao
+  cancel-in-progress: false
+
+jobs:
+  instalar:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Instalar personalização
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          root = Path.cwd()
+          files = {
+              'src/app/produto/anodization-actions.ts': r''''use server'
+
+          import { getStoreProduct } from '@/lib/catalog-server'
+          import { resolveProductSelection } from '@/lib/data'
+          import type { Product } from '@/lib/data'
+          import { getAnodization } from '@/lib/anodization'
+
+          export async function quoteProductForCart(
+            slug: string,
+            selected: Record<string, string>,
+            color?: string
+          ): Promise<{ error: string; product?: Product }> {
+            try {
+              if (
+                typeof slug !== 'string' ||
+                slug.length > 180 ||
+                !selected ||
+                typeof selected !== 'object' ||
+                Array.isArray(selected) ||
+                Object.keys(selected).length > 20 ||
+                Object.entries(selected).some(
+                  ([key, value]) =>
+                    key.length > 180 ||
+                    typeof value !== 'string' ||
+                    value.length > 500
+                )
+              ) {
+                throw new Error('Confira as opções da peça.')
+              }
+
+              const result = await getStoreProduct(slug)
+              if (!result) throw new Error('Produto não encontrado.')
+
+              const product = result.product
+              const selection = resolveProductSelection(product, selected)
+
+              if (!selection?.inStock || !selection.priceAvailable) {
+                throw new Error(
+                  'Esta opção está indisponível. Atualize a página para conferir.'
+                )
+              }
+
+              getAnodization(product.tags, color)
+              return { error: '', product }
+            } catch (error) {
+              return {
+                error: error instanceof Error
+                  ? error.message
+                  : 'Não foi possível conferir a peça. Tente novamente.',
+              }
+            }
+          }
+          ''',
+
+              'src/components/product/AnodizationOptions.tsx': r''''use client'
+
+          import { useId } from 'react'
+          import {
+            ANODIZATION_COLORS,
+            ANODIZATION_FEE,
+            canAnodize,
+          } from '@/lib/anodization'
+          import { formatPrice } from '@/lib/data'
+
+          interface Props {
+            tags: string[]
+            enabled: boolean
+            color: string
+            disabled?: boolean
+            onChange: (enabled: boolean, color: string) => void
+          }
+
+          export default function AnodizationOptions({
+            tags,
+            enabled,
+            color,
+            disabled = false,
+            onChange,
+          }: Props) {
+            const id = useId()
+
+            if (!canAnodize(tags)) return null
+
+            return (
+              <section
+                aria-label="Personalização da cor do titânio"
+                className="rounded-2xl border border-[#DDD1BF] bg-[#F8F4ED] p-4 sm:p-5"
+              >
+                <p className="mb-3 text-[11px] font-medium uppercase tracking-[0.12em] text-[#756044]">
+                  Personalize a cor do titânio
+                </p>
+
+                <label className="flex cursor-pointer items-start gap-3 text-sm leading-relaxed">
+                  <input
+                    type="checkbox"
+                    checked={enabled}
+                    disabled={disabled}
+                    onChange={(event) =>
+                      onChange(
+                        event.target.checked,
+                        event.target.checked ? color : ''
+                      )
+                    }
+                    className="mt-1 h-4 w-4 shrink-0"
+                  />
+                  <span>
+                    Quero anodizar minha joia{' '}
+                    <span className="whitespace-nowrap font-medium">
+                      (+ {formatPrice(ANODIZATION_FEE)} por unidade)
+                    </span>
+                  </span>
+                </label>
+
+                {enabled && (
+                  <div className="mt-4">
+                    <label
+                      htmlFor={id}
+                      className="block text-xs text-[#625B51]"
+                    >
+                      Escolha a cor
+                    </label>
+
+                    <select
+                      id={id}
+                      value={color}
+                      disabled={disabled}
+                      onChange={(event) => onChange(true, event.target.value)}
+                      className="mt-2 min-h-[46px] w-full rounded-xl border border-[#D8CBB8] bg-white px-3 text-base sm:text-sm"
+                    >
+                      <option value="">Selecione uma cor</option>
+                      {ANODIZATION_COLORS.map((item) => (
+                        <option key={item.code} value={item.code}>
+                          {item.label} · {item.voltage} V
+                        </option>
+                      ))}
+                    </select>
+
+                    <p className="mt-3 text-xs text-[#81796C]">
+                      A cor escolhida e o adicional acompanham a peça no carrinho.
+                    </p>
+                  </div>
+                )}
+              </section>
+            )
+          }
+          ''',
+
+              'src/lib/anodization.ts': r'''export const ANODIZATION_FEE = 15
+
+          export const ANODIZATION_COLORS = [
+            { code: '12', label: 'Bronze Claro', voltage: 12 },
+            { code: '15', label: 'Bronze Escuro', voltage: 15 },
+            { code: '18', label: 'Berinjela', voltage: 18 },
+            { code: '20', label: 'Roxo Escuro', voltage: 20 },
+            { code: '22', label: 'Roxo', voltage: 22 },
+            { code: '25', label: 'Azul Escuro', voltage: 25 },
+            { code: '28', label: 'Azul', voltage: 28 },
+            { code: '30', label: 'Azul Médio', voltage: 30 },
+            { code: '33', label: 'Azul Céu', voltage: 33 },
+            { code: '36', label: 'Azul Claro', voltage: 36 },
+            { code: '40', label: 'Azul Gelo', voltage: 40 },
+            { code: '42', label: 'Azul Prateado', voltage: 42 },
+            { code: '48', label: 'Amarelo Pálido', voltage: 48 },
+            { code: '55', label: 'Amarelo Claro', voltage: 55 },
+            { code: '61', label: 'Amarelo', voltage: 61 },
+            { code: '64', label: 'Dourado', voltage: 64 },
+            { code: '70', label: 'Rose Gold', voltage: 70 },
+            { code: '72', label: 'Rosa Claro', voltage: 72 },
+            { code: '75', label: 'Rosa', voltage: 75 },
+            { code: '80', label: 'Fúcsia', voltage: 80 },
+            { code: '85', label: 'Fúcsia Escuro', voltage: 85 },
+            { code: '90', label: 'Roxo Vibrante', voltage: 90 },
+            { code: '92', label: 'Roxo Azulado', voltage: 92 },
+            { code: '95', label: 'Roxo Petróleo', voltage: 95 },
+            { code: '103', label: 'Verde Azulado', voltage: 103 },
+            { code: '105', label: 'Verde', voltage: 105 },
+          ]
+
+          export function canAnodize(tags: string[] = []): boolean {
+            return tags.some((value) =>
+              /^(anodizavel|anodizaveis|permite anodizacao|aceita anodizacao)$/.test(
+                value
+                  .normalize('NFD')
+                  .replace(/[\u0300-\u036f]/g, '')
+                  .toLowerCase()
+                  .trim()
+                  .replace(/\s+/g, ' ')
+              )
+            )
+          }
+
+          export function getAnodization(tags: string[], code?: string) {
+            if (code === undefined || code === '') return null
+
+            if (typeof code !== 'string' || !canAnodize(tags)) {
+              throw new Error('Esta peça não está disponível para anodização.')
+            }
+
+            const color = ANODIZATION_COLORS.find((item) => item.code === code)
+
+            if (!color) {
+              throw new Error('Escolha uma cor de anodização válida.')
+            }
+
+            return {
+              code: color.code,
+              label: `${color.label} ${color.voltage} V`,
+              fee: ANODIZATION_FEE,
+            }
+          }
+
+          export function anodizedPrice(base: number, fee: number): number {
+            return (Math.round(base * 100) + Math.round(fee * 100)) / 100
+          }
+          ''',
+
+              'src/lib/cart.ts': r'''import { create } from 'zustand'
+          import { persist } from 'zustand/middleware'
+          import { resolveProductSelection } from '@/lib/data'
+          import type { Product } from '@/lib/data'
+          import { anodizedPrice, getAnodization } from './anodization'
+
+          export interface CartItem {
+            id: string
+            productId: string
+            variationId?: string
+            slug: string
+            name: string
+            price: number
+            basePrice?: number
+            anodization?: {
+              code: string
+              label: string
+              fee: number
+            }
+            image: string
+            quantity: number
+            stock: number | null
+            variants: Record<string, string>
+            variantKey: string
+          }
+
+          interface CartStore {
+            items: CartItem[]
+            isOpen: boolean
+            addItem: (
+              product: Product,
+              quantity: number,
+              selectedVariants: Record<string, string>,
+              anodizationColor?: string
+            ) => boolean
+            removeItem: (variantKey: string) => void
+            updateQuantity: (variantKey: string, quantity: number) => void
+            clearCart: () => void
+            openCart: () => void
+            closeCart: () => void
+            total: () => number
+            itemCount: () => number
+          }
+
+          const sameSelection = (
+            item: CartItem,
+            productId: string,
+            variationId?: string
+          ) =>
+            item.productId === productId &&
+            (item.variationId || '') === (variationId || '')
+
+          export const useCartStore = create<CartStore>()(
+            persist(
+              (set, get) => ({
+                items: [],
+                isOpen: false,
+
+                addItem: (
+                  product,
+                  quantity,
+                  selectedVariants,
+                  anodizationColor
+                ) => {
+                  const selection = resolveProductSelection(
+                    product,
+                    selectedVariants
+                  )
+
+                  if (
+                    !selection ||
+                    !selection.inStock ||
+                    !selection.priceAvailable ||
+                    !Number.isFinite(selection.price) ||
+                    selection.price < 0 ||
+                    !Number.isFinite(quantity) ||
+                    quantity < 1
+                  ) return false
+
+                  let addon: ReturnType<typeof getAnodization>
+
+                  try {
+                    addon = getAnodization(product.tags, anodizationColor)
+                  } catch {
+                    return false
+                  }
+
+                  const variationId = product.variations
+                    ? selection.id
+                    : undefined
+
+                  const variantKey = JSON.stringify(
+                    addon
+                      ? [
+                          product.id,
+                          variationId || '',
+                          'anodization',
+                          addon.code,
+                        ]
+                      : [product.id, variationId || '']
+                  )
+
+                  const existing = get().items.find(
+                    (item) => item.variantKey === variantKey
+                  )
+
+                  const otherQuantity = get().items
+                    .filter(
+                      (item) =>
+                        item.variantKey !== variantKey &&
+                        sameSelection(item, product.id, variationId)
+                    )
+                    .reduce((total, item) => total + item.quantity, 0)
+
+                  const wanted =
+                    (existing?.quantity || 0) + Math.floor(quantity)
+
+                  const allowed = selection.stock === null
+                    ? wanted
+                    : Math.min(
+                        wanted,
+                        Math.max(0, selection.stock - otherQuantity)
+                      )
+
+                  if (allowed <= (existing?.quantity || 0)) return false
+
+                  const variants: Record<string, string> = {}
+
+                  if (variationId) variants['Variação'] = selection.name
+                  if (addon) {
+                    variants['Anodização'] =
+                      `${addon.label} (+ R$ 15,00 por unidade)`
+                  }
+
+                  const item: CartItem = {
+                    id: existing?.id || variantKey,
+                    productId: product.id,
+                    variationId,
+                    slug: product.slug,
+                    name: product.name,
+                    price: anodizedPrice(selection.price, addon?.fee || 0),
+                    basePrice: selection.price,
+                    anodization: addon || undefined,
+                    image: selection.image || product.images[0] || '',
+                    quantity: allowed,
+                    stock: selection.stock,
+                    variants,
+                    variantKey,
+                  }
+
+                  set((state) => ({
+                    items: existing
+                      ? state.items.map((current) =>
+                          current.variantKey === variantKey ? item : current
+                        )
+                      : [...state.items, item],
+                  }))
+
+                  return true
+                },
+
+                removeItem: (variantKey) =>
+                  set((state) => ({
+                    items: state.items.filter(
+                      (item) => item.variantKey !== variantKey
+                    ),
+                  })),
+
+                updateQuantity: (variantKey, quantity) => {
+                  if (!Number.isFinite(quantity)) return
+
+                  if (quantity <= 0) {
+                    get().removeItem(variantKey)
+                    return
+                  }
+
+                  set((state) => ({
+                    items: state.items
+                      .map((item) => {
+                        if (item.variantKey !== variantKey) return item
+
+                        const others = state.items
+                          .filter(
+                            (other) =>
+                              other.variantKey !== variantKey &&
+                              sameSelection(
+                                other,
+                                item.productId,
+                                item.variationId
+                              )
+                          )
+                          .reduce(
+                            (total, other) => total + other.quantity,
+                            0
+                          )
+
+                        const requested = Math.max(1, Math.floor(quantity))
+
+                        return {
+                          ...item,
+                          quantity: item.stock === null
+                            ? requested
+                            : Math.min(
+                                requested,
+                                Math.max(0, item.stock - others)
+                              ),
+                        }
+                      })
+                      .filter((item) => item.quantity > 0),
+                  }))
+                },
+
+                clearCart: () => set({ items: [] }),
+                openCart: () => set({ isOpen: true }),
+                closeCart: () => set({ isOpen: false }),
+
+                total: () =>
+                  get().items.reduce(
+                    (total, item) => total + item.price * item.quantity,
+                    0
+                  ),
+
+                itemCount: () =>
+                  get().items.reduce(
+                    (total, item) => total + item.quantity,
+                    0
+                  ),
+              }),
+              {
+                name: 'serenity-cart',
+                version: 2,
+                partialize: (state) => ({ items: state.items }),
+                migrate: () => ({ items: [] }),
+              }
+            )
+          )
+          ''',
+          }
+
+          page = root / 'src/app/produto/[slug]/ProductPageClient.tsx'
+          cart = root / 'src/lib/cart.ts'
+
+          if not page.is_file() or not cart.is_file():
+              raise SystemExit(
+                  'Não encontrei a página do produto e o carrinho. Nenhum arquivo foi alterado.'
+              )
+
+          source = page.read_text(encoding='utf-8')
+          marker = '// Serenity: anodização no carrinho'
+
+          if marker not in source:
+              if "'use client'" not in source:
+                  raise SystemExit(
+                      'O formato da página mudou. Envie o ProductPageClient.tsx atual.'
+                  )
+
+              imports = (
+                  "\n" + marker +
+                  "\nimport AnodizationOptions from '@/components/product/AnodizationOptions'"
+                  "\nimport { ANODIZATION_FEE, anodizedPrice, canAnodize } from '@/lib/anodization'"
+                  "\nimport { quoteProductForCart } from '../anodization-actions'\n"
+              )
+
+              source = source.replace("'use client'", "'use client'" + imports, 1)
+              source = re.sub(
+                  r"import ProductPersonalizationHint from [^\n]+\n",
+                  '',
+                  source
+              )
+              source = re.sub(
+                  r'<ProductPersonalizationHint\b[^>]*?/>',
+                  '',
+                  source
+              )
+
+              source, count = re.subn(
+                  r'(const \[quantity, setQuantity\] = useState\(1\))',
+                  r"\1\n  const [anodizationRequested, setAnodizationRequested] = useState(false)\n  const [anodizationColor, setAnodizationColor] = useState('')\n  const [adding, setAdding] = useState(false)",
+                  source,
+                  count=1
+              )
+
+              if count != 1:
+                  raise SystemExit(
+                      'O controle de quantidade mudou. Nenhum arquivo foi alterado.'
+                  )
+
+              source, count = re.subn(
+                  r'const canBuy = Boolean\([\s\S]*?\n\s*\)',
+                  "const canBuy = Boolean(selection?.inStock && selection.priceAvailable && !adding && (!anodizationRequested || anodizationColor))",
+                  source,
+                  count=1
+              )
+
+              if count != 1:
+                  raise SystemExit(
+                      'O controle de compra mudou. Nenhum arquivo foi alterado.'
+                  )
+
+              price = 'const currentPrice = selection?.price ?? product.price'
+
+              if source.count(price) != 1:
+                  raise SystemExit(
+                      'O cálculo de preço mudou. Nenhum arquivo foi alterado.'
+                  )
+
+              source = source.replace(
+                  price,
+                  "const anodizationFee = canAnodize(product.tags) && anodizationRequested ? ANODIZATION_FEE : 0\n  const currentPrice = anodizedPrice(selection?.price ?? product.price, anodizationFee)",
+                  1
+              )
+
+              source = source.replace(
+                  'const originalPrice = selection?.originalPrice',
+                  'const originalPrice = selection?.originalPrice === undefined ? undefined : anodizedPrice(selection.originalPrice, anodizationFee)',
+                  1
+              )
+
+              start = source.find('function handleAddToCart() {')
+
+              if start < 0:
+                  raise SystemExit(
+                      'A função de adicionar ao carrinho mudou. Nenhum arquivo foi alterado.'
+                  )
+
+              opening = source.index('{', start)
+              depth = 0
+              closing = None
+
+              for index in range(opening, len(source)):
+                  if source[index] == '{':
+                      depth += 1
+                  elif source[index] == '}':
+                      depth -= 1
+                      if depth == 0:
+                          closing = index + 1
+                          break
+
+              if closing is None:
+                  raise SystemExit('Não foi possível ler a função de compra.')
+
+              handler = """async function handleAddToCart() {
+              setMessage('')
+              if (!canBuy) return
+              setAdding(true)
+
+              try {
+                const color = anodizationRequested ? anodizationColor : undefined
+                const quote = await quoteProductForCart(product.slug, selectedVariants, color)
+
+                if (quote.error || !quote.product) {
+                  setMessage(quote.error || 'Não foi possível conferir a peça.')
+                  return
+                }
+
+                const success = addItem(quote.product, quantity, selectedVariants, color)
+
+                if (!success) {
+                  setMessage('Não foi possível adicionar. Confira a variação e o limite de estoque, incluindo outras cores no carrinho.')
+                  return
+                }
+
+                setAdded(true)
+                openCart()
+                setTimeout(() => setAdded(false), 2000)
+              } catch {
+                setMessage('Não foi possível conferir a peça. Tente novamente.')
+              } finally {
+                setAdding(false)
+              }
+            }"""
+
+              source = source[:start] + handler + source[closing:]
+
+              control = '<AnodizationOptions tags={product.tags} enabled={anodizationRequested} color={anodizationColor} disabled={adding} onChange={(enabled, color) => { setAnodizationRequested(enabled); setAnodizationColor(color); setAdded(false); setMessage("") }} />'
+
+              source, count = re.subn(
+                  r'(?=<div className="space-y-2">\s*<p\b[^>]*>\s*Quantidade)',
+                  lambda _: control,
+                  source,
+                  count=1
+              )
+
+              if count != 1:
+                  raise SystemExit(
+                      'A área de quantidade mudou. Nenhum arquivo foi alterado.'
+                  )
+
+              source = source.replace(
+                  ": 'Indisponível'",
+                  ": anodizationRequested && !anodizationColor ? 'Escolha a cor' : 'Indisponível'",
+                  1
+              )
+
+              source, count = re.subn(
+                  r'(\{\s*)added(\s*\n\s*\?)',
+                  r"\1adding ? 'Conferindo…' : added\2",
+                  source,
+                  count=1
+              )
+
+              if count != 1:
+                  raise SystemExit(
+                      'O texto do botão de compra mudou. Nenhum arquivo foi alterado.'
+                  )
+
+          for name, content in files.items():
+              target = root / name
+              target.parent.mkdir(parents=True, exist_ok=True)
+              target.write_text(content, encoding='utf-8')
+
+          page.write_text(source, encoding='utf-8')
+          print('26 cores de anodização, adicional por unidade e identificação no carrinho instalados.')
+          PY
+
+      - run: npm ci --ignore-scripts
+      - run: npx tsc --noEmit --incremental false
+      - run: npx next lint --no-cache
+
+      - name: Salvar atualização
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/lib/cart.ts src/lib/anodization.ts src/components/product/AnodizationOptions.tsx src/app/produto
+          if git diff --cached --quiet; then
+            echo "Anodização já instalada."
+          else
+            git commit -m "Adicionar anodização com 26 cores e adicional no carrinho"
+            git push origin HEAD:main
+          fi

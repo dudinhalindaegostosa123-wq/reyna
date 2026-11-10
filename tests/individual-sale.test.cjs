@@ -1,0 +1,15 @@
+const {test}=require('node:test'),assert=require('node:assert/strict'),{load}=require('./helpers/load.cjs')
+const sale=load('src/lib/individual-sale.ts'),data=load('src/lib/data.ts')
+test('only mamilo and push pin use individual sale; unit SKU price and other physical choices are retained',()=>{
+ assert.equal(sale.isIndividualSale({name:'Par de Piercing de Mamilo'}),true)
+ assert.equal(sale.isIndividualSale({name:'Topo Cristal',categorySlugs:['topos-push-pin']}),true)
+ assert.equal(sale.isIndividualSale({name:'Par de brincos'}),false)
+ assert.equal(sale.isIndividualSale({name:'Estojo Push Pin'}),false)
+ assert.equal(sale.unitTitle('TN123 - Par de Piercing de Mamilo'),'TN123 - Piercing de Mamilo')
+ const variants=[{id:'pair',name:'Par',price:150,attributes:{'Escolha a Quantidade':'Par',Cor:'Azul'}},{id:'unit',name:'Unidade',price:80,attributes:{'Escolha a Quantidade':'Unidade',Cor:'Azul'}}]
+ const offered=sale.individualVariations(variants)
+ assert.equal(offered.length,1);assert.equal(offered[0].id,'unit');assert.equal(offered[0].price,80)
+ assert.equal(offered[0].attributes.Cor,'Azul');assert.equal(offered[0].name,'Cor Azul')
+ assert.equal(data.resolveProductSelection({variations:offered},{Variação:'unit'}).price,80)
+ assert.equal(sale.salePresentation({'Quantidade de pedras':'Par'}),null)
+})

@@ -1,0 +1,978 @@
+name: Conectar frete ao checkout
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: conectar-frete-checkout
+  cancel-in-progress: false
+
+jobs:
+  instalar:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Instalar configurações e checkout
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          root = Path.cwd()
+
+          files = {
+          'src/app/admin/frete/page.tsx': r'''import { adminDatabase } from '@/lib/admin-auth'
+          import { shippingSettings } from '@/lib/shipping-server'
+          import ShippingSettingsForm from './ShippingSettingsForm'
+          import ShippingTest from './ShippingTest'
+
+          export const dynamic = 'force-dynamic'
+          export const metadata = { title: 'Frete | Administração Serenity' }
+
+          export default async function ShippingPage() {
+            const { db } = await adminDatabase()
+            const settings = await shippingSettings(db)
+
+            return (
+              <div className="mx-auto max-w-4xl px-5 py-8 sm:px-8">
+                <h1 className="text-3xl font-medium">Frete</h1>
+                <p className="mb-7 mt-3 text-sm text-[#756B5D]">
+                  Configure os dados usados nas cotações do checkout e teste os serviços disponíveis.
+                </p>
+                <ShippingSettingsForm settings={settings} />
+                <ShippingTest />
+              </div>
+            )
+          }
+          ''',
+
+          'src/app/admin/frete/settings-actions.ts': r''''use server'
+
+          import { revalidatePath } from 'next/cache'
+          import { adminDatabase } from '@/lib/admin-auth'
+          import { shippingFields } from '@/lib/shipping'
+
+          export async function saveShippingSettings(
+            data: FormData
+          ): Promise<{ error: string; version?: number }> {
+            const { db, user } = await adminDatabase()
+            let payload: ReturnType<typeof shippingFields>, version: number
+
+            try {
+              payload = shippingFields(data, user.email || '')
+              version = Number(data.get('version'))
+              if (!Number.isSafeInteger(version) || version < 1) {
+                throw new Error('Atualize a página e tente salvar novamente.')
+              }
+            } catch (error) {
+              return {
+                error: error instanceof Error ? error.message : 'Confira as configurações.',
+              }
+            }
+
+            const { data: next, error } = await db.rpc(
+              'serenity_shipping_settings_save',
+              { p_data: payload, p_version: version }
+            )
+
+            if (error) {
+              return {
+                error: error.message.includes('SHIPPING_SETTINGS_CHANGED')
+                  ? 'As configurações foram alteradas em outra tela. Atualize antes de salvar.'
+                  : 'Não foi possível salvar. Confira os dados e se o SQL desta etapa foi executado.',
+              }
+            }
+
+            revalidatePath('/admin/frete')
+            return { error: '', version: Number(next) }
+          }
+          ''',
+
+          'src/app/admin/frete/ShippingSettingsForm.tsx': r''''use client'
+
+          import { useState } from 'react'
+          import type { ShippingSettings } from '@/lib/shipping'
+          import { saveShippingSettings } from './settings-actions'
+
+          export default function ShippingSettingsForm({ settings }: { settings: ShippingSettings }) {
+            const [version, setVersion] = useState(settings.version)
+            const [busy, setBusy] = useState(false)
+            const [message, setMessage] = useState('')
+
+            return (
+              <form
+                className="mb-7 rounded-2xl border border-[#E5DED3] bg-white p-5 sm:p-7"
+                onSubmit={async event => {
+                  event.preventDefault()
+                  if (busy) return
+                  const data = new FormData(event.currentTarget)
+                  setBusy(true)
+                  setMessage('')
+
+                  try {
+                    const result = await saveShippingSettings(data)
+                    if (result.error) setMessage(result.error)
+                    else {
+                      setVersion(result.version!)
+                      setMessage('Configurações salvas. As novas cotações usarão estes dados.')
+                    }
+                  } catch {
+                    setMessage('Falha de conexão. Atualize a página antes de tentar novamente.')
+                  } finally {
+                    setBusy(false)
+                  }
+                }}
+              >
+                <h2 className="text-lg font-medium">Embalagem padrão e origem</h2>
+                <p className="mt-2 text-xs leading-relaxed text-[#756B5D]">
+                  Confirme o peso total embalado e o limite de peças que cabem neste pacote.
+                  Pedidos acima do limite ou com produtos da lista de exceções terão o frete confirmado pela equipe.
+                </p>
+
+                <input type="hidden" name="version" value={version} />
+
+                <fieldset disabled={busy} className="mt-5 grid gap-4 sm:grid-cols-2">
+                  {([
+                    ['origin', 'CEP de origem', settings.origin],
+                    ['weight_g', 'Peso total embalado (g)', settings.weight_g],
+                    ['height', 'Altura (cm)', settings.height],
+                    ['width', 'Largura (cm)', settings.width],
+                    ['length', 'Comprimento (cm)', settings.length],
+                    ['max_units', 'Limite de peças por pacote', settings.max_units ?? ''],
+                  ] as const).map(([name, label, value]) => (
+                    <label key={name} className="text-xs">
+                      {label}
+                      <input
+                        name={name}
+                        defaultValue={value}
+                        maxLength={20}
+                        inputMode={name === 'origin' ? 'text' : 'decimal'}
+                        className="mt-2 min-h-[44px] w-full rounded-xl border border-[#DDD4C7] px-3 text-base sm:text-sm"
+                      />
+                    </label>
+                  ))}
+
+                  <label className="text-xs sm:col-span-2">
+                    Produtos que precisam de outra embalagem (opcional)
+                    <textarea
+                      name="manual_slugs"
+                      defaultValue={settings.manual_slugs.join('\n')}
+                      maxLength={36500}
+                      rows={3}
+                      placeholder="Cole os slugs dos produtos, um por linha. Ex.: porta-joias-grande"
+                      className="mt-2 w-full rounded-xl border border-[#DDD4C7] p-3 text-sm"
+                    />
+                  </label>
+
+                  <label className="flex items-start gap-3 text-sm sm:col-span-2">
+                    <input type="checkbox" name="enabled" defaultChecked={settings.enabled} className="mt-1" />
+                    <span>Ativar cotação automática no checkout para pedidos que cabem neste pacote.</span>
+                  </label>
+                </fieldset>
+
+                <p className="mt-4 text-xs text-[#756B5D]">
+                  Sem um limite confirmado, deixe a cotação automática desativada.
+                  O cliente poderá enviar o pedido com frete a confirmar.
+                </p>
+
+                <button disabled={busy} className="mt-5 rounded-full bg-[#292621] px-6 py-3 text-xs text-white disabled:opacity-50">
+                  {busy ? 'Salvando…' : 'Salvar configurações'}
+                </button>
+                <p role="status" className="mt-3 text-sm">{message}</p>
+              </form>
+            )
+          }
+          ''',
+
+          'src/app/checkout/actions.ts': r''''use server'
+
+          import { revalidatePath } from 'next/cache'
+          import { checkoutDatabase, checkoutError, checkoutHash } from '@/lib/checkout-server'
+          import { validateCheckoutLines, validateCheckoutContact } from '@/lib/checkout'
+          import type { CheckoutLine, CheckoutQuote, CheckoutCustomer, CheckoutAddress } from '@/lib/checkout'
+          import type { DeliveryOption, DeliveryReceipt } from '@/lib/shipping'
+          import { deliveryOptions, deliveryError } from '@/lib/shipping-server'
+
+          const uuid = (value: unknown): value is string =>
+            typeof value === 'string' &&
+            /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i.test(value)
+
+          export async function reviewCheckout(
+            input: CheckoutLine[],
+            requestId?: string
+          ): Promise<{ error: string; quote?: CheckoutQuote }> {
+            let items: CheckoutLine[]
+            try {
+              items = validateCheckoutLines(input)
+            } catch (error) {
+              return { error: error instanceof Error ? error.message : 'Confira o carrinho.' }
+            }
+
+            try {
+              const db = await checkoutDatabase('review')
+              const { data, error } = await db.rpc('serenity_stock_review', {
+                p_items: items,
+                p_request: uuid(requestId) ? requestId : null,
+              })
+              if (error) throw error
+              return { error: '', quote: data as CheckoutQuote }
+            } catch (error) {
+              return { error: checkoutError(error) }
+            }
+          }
+
+          export async function quoteCheckoutShipping(
+            input: { items: CheckoutLine[]; requestId: string; cep: string }
+          ): Promise<{ error: string; quote?: CheckoutQuote; options?: DeliveryOption[]; message?: string }> {
+            let items: CheckoutLine[], cep: string
+
+            try {
+              if (
+                !input || !uuid(input.requestId) ||
+                typeof input.cep !== 'string' ||
+                !/^\d{5}-?\d{3}$/.test(input.cep.trim())
+              ) {
+                throw new Error('Confira o CEP de entrega e atualize a página se necessário.')
+              }
+              items = validateCheckoutLines(input.items)
+              cep = input.cep.trim().replace('-', '')
+            } catch (error) {
+              return { error: error instanceof Error ? error.message : 'Confira o carrinho e o CEP.' }
+            }
+
+            try {
+              const db = await checkoutDatabase('review')
+              const { data, error } = await db.rpc('serenity_stock_review', {
+                p_items: items,
+                p_request: input.requestId,
+              })
+              if (error) throw error
+
+              const quote = data as CheckoutQuote
+              const result = await deliveryOptions(db, items, input.requestId, cep, quote)
+              return { error: '', quote, ...result }
+            } catch (error) {
+              const message = error instanceof Error ? error.message : ''
+              return {
+                error: deliveryError(error) || (
+                  /^ME_/.test(message)
+                    ? 'Não foi possível calcular a entrega agora. Confira o CEP e tente novamente ou fale com a equipe Serenity.'
+                    : checkoutError(error)
+                ),
+              }
+            }
+          }
+
+          export async function submitCheckout(input: {
+            id: string
+            items: CheckoutLine[]
+            customer: CheckoutCustomer
+            address: CheckoutAddress
+            totalCents: number
+            website: string
+            shippingQuote: string
+          }): Promise<{ error: string; receipt?: DeliveryReceipt }> {
+            let items: CheckoutLine[], contact: ReturnType<typeof validateCheckoutContact>
+
+            try {
+              if (
+                !input || !uuid(input.id) || !uuid(input.shippingQuote) ||
+                !Number.isSafeInteger(input.totalCents) ||
+                input.totalCents < 0 || input.website !== ''
+              ) {
+                throw new Error('Confira os dados e escolha uma opção de entrega.')
+              }
+              items = validateCheckoutLines(input.items)
+              contact = validateCheckoutContact(input.customer, input.address)
+            } catch (error) {
+              return { error: error instanceof Error ? error.message : 'Confira os dados do pedido.' }
+            }
+
+            try {
+              const db = await checkoutDatabase('submit')
+              const fingerprint = checkoutHash(JSON.stringify({
+                items,
+                ...contact,
+                total: input.totalCents,
+                shipping: input.shippingQuote,
+              }))
+
+              const { data, error } = await db.rpc('serenity_checkout_with_shipping', {
+                p_id: input.id,
+                p_fingerprint: fingerprint,
+                p_items: items,
+                p_customer: contact.customer,
+                p_address: contact.address,
+                p_expected: input.totalCents,
+                p_cart_hash: checkoutHash(JSON.stringify(items)),
+                p_shipping: input.shippingQuote,
+              })
+
+              if (error) throw error
+
+              revalidatePath('/admin/pedidos')
+              revalidatePath('/admin/clientes')
+              revalidatePath('/admin/produtos')
+              revalidatePath('/admin/produtos/[id]', 'page')
+
+              return { error: '', receipt: data as DeliveryReceipt }
+            } catch (error) {
+              return { error: deliveryError(error) || checkoutError(error) }
+            }
+          }
+          ''',
+
+          'src/app/checkout/CheckoutClient.tsx': r''''use client'
+
+          import { useEffect, useRef, useState } from 'react'
+          import Link from 'next/link'
+          import { useCartStore } from '@/lib/cart'
+          import { formatPrice } from '@/lib/data'
+          import { ANODIZATION_COLORS } from '@/lib/anodization'
+          import { CHECKOUT_STATES } from '@/lib/checkout'
+          import type { CheckoutQuote } from '@/lib/checkout'
+          import type { DeliveryOption, DeliveryReceipt } from '@/lib/shipping'
+          import { reviewCheckout, quoteCheckoutShipping, submitCheckout } from './actions'
+
+          const field = 'mt-1 min-h-[46px] w-full rounded-xl border border-[#DCD4C8] bg-white px-3 py-2 text-base sm:text-sm'
+          const box = 'rounded-3xl border border-[#E5DED3] bg-white p-5 sm:p-7'
+
+          export default function CheckoutClient() {
+            const { items, clearCart } = useCartStore()
+            const [ready, setReady] = useState(false)
+            const [pending, setPending] = useState(false)
+            const [message, setMessage] = useState('')
+            const [quote, setQuote] = useState<CheckoutQuote | null>(null)
+            const [receipt, setReceipt] = useState<DeliveryReceipt | null>(null)
+            const [requestId, setRequestId] = useState('')
+            const [cep, setCep] = useState('')
+            const [options, setOptions] = useState<DeliveryOption[]>([])
+            const [selected, setSelected] = useState('')
+            const [deliveryNote, setDeliveryNote] = useState('')
+            const generation = useRef(0)
+
+            const lines = items.map(item => ({
+              slug: item.slug,
+              variant: item.variationId || '',
+              quantity: item.quantity,
+              color: item.anodization?.code || '',
+            }))
+            const signature = JSON.stringify(lines)
+            const delivery = options.find(option => option.id === selected)
+            const totalCents = (quote?.total_cents || 0) + (delivery?.amount_cents || 0)
+
+            useEffect(() => { setReady(true) }, [])
+
+            useEffect(() => {
+              generation.current++
+              setQuote(null)
+              setOptions([])
+              setSelected('')
+              setDeliveryNote('')
+              setMessage('')
+              if (!ready) return
+
+              try {
+                const saved = sessionStorage.getItem('serenity-checkout-request')
+                const value = saved ? JSON.parse(saved) : null
+                const id = value?.cart === signature && typeof value?.id === 'string'
+                  ? value.id
+                  : crypto.randomUUID()
+
+                sessionStorage.setItem('serenity-checkout-request', JSON.stringify({ cart: signature, id }))
+                setRequestId(id)
+              } catch {
+                setRequestId(crypto.randomUUID())
+              }
+            }, [signature, ready])
+
+            async function calculate() {
+              if (pending || !requestId) return
+              const current = generation.current
+              setPending(true)
+              setMessage('')
+              setOptions([])
+              setSelected('')
+              setDeliveryNote('')
+
+              try {
+                const result = await quoteCheckoutShipping({ items: lines, requestId, cep })
+                if (current !== generation.current) return
+                if (result.error) setMessage(result.error)
+                else {
+                  if (result.quote) setQuote(result.quote)
+                  setOptions(result.options || [])
+                  setDeliveryNote(result.message || '')
+                }
+              } catch {
+                setMessage('Não foi possível calcular o frete. Tente novamente.')
+              } finally {
+                setPending(false)
+              }
+            }
+
+            if (!ready) {
+              return <div role="status" className="px-5 py-16 text-center text-sm">Carregando seu carrinho…</div>
+            }
+
+            if (receipt) {
+              return (
+                <main className="mx-auto max-w-2xl px-5 py-16">
+                  <p className="text-xs uppercase tracking-widest text-[#947B57]">Serenity Piercings</p>
+                  <h1 className="mt-4 text-3xl font-medium">Pedido #{receipt.number} recebido</h1>
+                  <div className="my-7 rounded-3xl border border-[#E5DED3] bg-white p-6">
+                    <p className="text-sm">
+                      {receipt.shippingPending ? 'Valor das peças' : 'Total com frete'}:{' '}
+                      <strong>{formatPrice(receipt.total)}</strong>
+                    </p>
+                    <p className="mt-4 text-sm leading-relaxed text-[#756B5D]">
+                      {receipt.shippingPending
+                        ? 'O frete será confirmado pela equipe antes do pagamento e ainda não está incluído no valor acima.'
+                        : `Frete escolhido incluído no total: ${formatPrice(receipt.shipping)}.`}
+                      {' '}Nenhum valor foi cobrado. O pagamento ainda precisa ser confirmado com a equipe.
+                    </p>
+                    {receipt.reservedUntil && (
+                      <p className="mt-4 text-xs text-[#756B5D]">
+                        Reserva inicial das peças até{' '}
+                        {new Date(receipt.reservedUntil).toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' })}
+                        {' '}(horário de Brasília). Após esse prazo, a disponibilidade precisa ser conferida novamente.
+                      </p>
+                    )}
+                  </div>
+                  <p className="mb-6 text-xs text-[#81796C]">Guarde o número do pedido para falar com o atendimento.</p>
+                  <Link href="/" className="inline-flex rounded-full bg-[#292621] px-7 py-3 text-sm text-white">Voltar à loja</Link>
+                </main>
+              )
+            }
+
+            if (!items.length) {
+              return <main className="mx-auto max-w-xl px-5 py-16 text-center"><h1 className="text-2xl font-medium">Seu carrinho está vazio</h1><Link href="/categoria/todos" className="mt-6 inline-block underline">Escolher minhas joias</Link></main>
+            }
+
+            return (
+              <main className="mx-auto max-w-5xl px-5 py-8 sm:px-8">
+                <Link href="/carrinho" className="text-xs underline">← Voltar ao carrinho</Link>
+                <h1 className="mt-6 text-3xl font-medium tracking-tight">Finalizar meu pedido</h1>
+                <p className="mb-7 mt-3 text-sm text-[#756B5D]">
+                  Confira suas peças, informe o endereço e escolha a entrega. O pagamento será combinado com a equipe.
+                </p>
+
+                <section className={`${box} mb-6`}>
+                  <h2 className="text-lg font-medium">Suas peças</h2>
+                  {!quote ? (
+                    <>
+                      <p className="my-4 text-sm text-[#81796C]">Confira os preços e a disponibilidade atual, incluindo a anodização escolhida.</p>
+                      <button
+                        type="button"
+                        disabled={pending || !requestId}
+                        onClick={async () => {
+                          const current = generation.current
+                          setPending(true)
+                          setMessage('')
+                          try {
+                            const result = await reviewCheckout(lines, requestId)
+                            if (current !== generation.current) return
+                            if (result.error) setMessage(result.error)
+                            else if (result.quote) setQuote(result.quote)
+                          } catch {
+                            setMessage('Falha de conexão. Tente conferir novamente.')
+                          } finally {
+                            setPending(false)
+                          }
+                        }}
+                        className="min-h-[46px] rounded-full bg-[#292621] px-6 text-sm text-white disabled:opacity-50"
+                      >
+                        {pending ? 'Conferindo…' : 'Conferir peças e valores'}
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      <ul className="mt-4 divide-y divide-[#E5DED3]">
+                        {quote.items.map((item, index) => (
+                          <li key={index} className="flex items-start justify-between gap-4 py-4">
+                            <div className="min-w-0">
+                              <p className="text-sm font-medium">{item.name}</p>
+                              {item.variation && <p className="mt-1 text-xs text-[#81796C]">{item.variation}</p>}
+                              {item.color && (
+                                <p className="mt-1 text-xs text-[#81796C]">
+                                  Anodização: {ANODIZATION_COLORS.find(c => c.code === item.color)?.label}
+                                  {' '}· {item.color} V (+ {formatPrice(item.fee)} por unidade)
+                                </p>
+                              )}
+                              <p className="mt-2 text-xs">{item.quantity} × {formatPrice(item.unit_price + item.fee)}</p>
+                            </div>
+                            <strong className="shrink-0 text-sm">{formatPrice(item.line_total)}</strong>
+                          </li>
+                        ))}
+                      </ul>
+                      <div className="mt-3 flex justify-between border-t border-[#E5DED3] pt-5 text-sm">
+                        <span>Valor das peças</span><strong>{formatPrice(quote.total)}</strong>
+                      </div>
+                    </>
+                  )}
+                </section>
+
+                <form onSubmit={async event => {
+                  event.preventDefault()
+                  if (!quote || !delivery || pending || !requestId) return
+                  const form = new FormData(event.currentTarget)
+                  const get = (key: string) => String(form.get(key) || '')
+                  setPending(true)
+                  setMessage('')
+
+                  try {
+                    const result = await submitCheckout({
+                      id: requestId,
+                      items: lines,
+                      customer: { name: get('name'), email: get('email'), phone: get('phone') },
+                      address: {
+                        cep: get('cep'), street: get('street'), number: get('number'),
+                        complement: get('complement'), district: get('district'),
+                        city: get('city'), state: get('state'),
+                      },
+                      totalCents,
+                      website: get('website'),
+                      shippingQuote: delivery.id,
+                    })
+
+                    if (result.error) {
+                      setMessage(result.error)
+                      setOptions([])
+                      setSelected('')
+                      setDeliveryNote('')
+                      return
+                    }
+
+                    if (result.receipt) {
+                      setReceipt(result.receipt)
+                      try { sessionStorage.removeItem('serenity-checkout-request') } catch {}
+                      clearCart()
+                    }
+                  } catch {
+                    setMessage('A conexão falhou. Tente enviar novamente nesta tela; o mesmo envio não será duplicado.')
+                  } finally {
+                    setPending(false)
+                  }
+                }}>
+                  <fieldset disabled={pending} className="space-y-6 disabled:opacity-60">
+                    <section className={box}>
+                      <h2 className="mb-5 text-lg font-medium">Seus dados</h2>
+                      <div className="grid gap-4 sm:grid-cols-2">
+                        <label className="text-xs sm:col-span-2">Nome completo<input name="name" required maxLength={180} autoComplete="name" className={field} /></label>
+                        <label className="text-xs">E-mail<input name="email" type="email" required maxLength={254} autoComplete="email" className={field} /></label>
+                        <label className="text-xs">WhatsApp com DDD<input name="phone" type="tel" required maxLength={25} autoComplete="tel" className={field} /></label>
+                      </div>
+                    </section>
+
+                    <section className={box}>
+                      <h2 className="mb-5 text-lg font-medium">Endereço para entrega</h2>
+                      <div className="grid gap-4 sm:grid-cols-2">
+                        <label className="text-xs">
+                          CEP
+                          <input name="cep" value={cep} onChange={event => {
+                            generation.current++
+                            setCep(event.target.value)
+                            setOptions([])
+                            setSelected('')
+                            setDeliveryNote('')
+                            setMessage('')
+                          }} required maxLength={9} inputMode="numeric" autoComplete="postal-code" className={field} />
+                        </label>
+                        <label className="text-xs">
+                          Estado
+                          <select name="state" required defaultValue="" autoComplete="address-level1" className={field}>
+                            <option value="">Selecione</option>
+                            {CHECKOUT_STATES.map(uf => <option key={uf} value={uf}>{uf}</option>)}
+                          </select>
+                        </label>
+                        <label className="text-xs sm:col-span-2">Rua ou avenida<input name="street" required maxLength={180} autoComplete="address-line1" className={field} /></label>
+                        <label className="text-xs">Número<input name="number" required maxLength={30} className={field} /></label>
+                        <label className="text-xs">Complemento (opcional)<input name="complement" maxLength={180} autoComplete="address-line2" className={field} /></label>
+                        <label className="text-xs">Bairro<input name="district" required maxLength={100} className={field} /></label>
+                        <label className="text-xs">Cidade<input name="city" required maxLength={100} autoComplete="address-level2" className={field} /></label>
+                      </div>
+                    </section>
+
+                    <section className={box}>
+                      <h2 className="text-lg font-medium">Entrega</h2>
+                      <button type="button" disabled={!requestId} onClick={() => void calculate()} className="mt-4 rounded-full border border-[#CFC3B1] px-6 py-3 text-sm">
+                        {pending ? 'Consultando…' : options.length ? 'Atualizar opções de frete' : 'Calcular frete'}
+                      </button>
+                      <p role="status" className="mt-4 text-xs leading-relaxed text-[#756B5D]">{deliveryNote}</p>
+                      <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                        {options.map(option => (
+                          <label key={option.id} className={`flex cursor-pointer items-start gap-3 rounded-2xl border p-4 ${selected === option.id ? 'border-[#947B57] bg-[#F8F4ED]' : 'border-[#E5DED3]'}`}>
+                            <input type="radio" name="delivery" value={option.id} checked={selected === option.id} onChange={() => setSelected(option.id)} className="mt-1" />
+                            <span>
+                              <span className="block text-sm font-medium">{option.company} · {option.service}</span>
+                              <span className="mt-2 block text-sm">{option.manual ? 'Valor a confirmar' : formatPrice(option.amount_cents / 100)}</span>
+                              {!option.manual && (
+                                <span className="mt-1 block text-xs text-[#756B5D]">
+                                  {option.days === null ? 'Prazo a confirmar' : `${option.days} dia(s) estimado(s) após a postagem`}
+                                </span>
+                              )}
+                            </span>
+                          </label>
+                        ))}
+                      </div>
+                    </section>
+
+                    <section className={box}>
+                      <div className="flex justify-between gap-3 text-sm"><span>Peças</span><strong>{quote ? formatPrice(quote.total) : 'A conferir'}</strong></div>
+                      <div className="mt-3 flex justify-between gap-3 text-sm"><span>Frete</span><span>{!delivery ? 'Escolha a entrega' : delivery.manual ? 'A confirmar' : formatPrice(delivery.amount_cents / 100)}</span></div>
+                      <div className="mt-5 flex justify-between gap-3 border-t border-[#E5DED3] pt-5"><span>{delivery?.manual ? 'Subtotal sem frete' : 'Total'}</span><strong>{quote ? formatPrice(totalCents / 100) : 'A conferir'}</strong></div>
+                    </section>
+
+                    <div hidden aria-hidden="true"><label>Website<input name="website" tabIndex={-1} autoComplete="off" /></label></div>
+                    <p className="text-xs leading-relaxed text-[#81796C]">
+                      Usaremos seus dados para processar o pedido e entrar em contato.
+                      Este envio não realiza cobrança. A reserva inicial das peças e seu prazo serão informados após a confirmação do pedido.
+                    </p>
+                    <button disabled={!quote || !delivery || !requestId} className="min-h-[48px] rounded-full bg-[#292621] px-8 text-sm text-white disabled:opacity-40">
+                      {pending ? 'Enviando…' : 'Enviar pedido para a Serenity'}
+                    </button>
+                  </fieldset>
+                </form>
+                {message && <p role="alert" className="mt-5 text-sm text-[#8B3E2F]">{message}</p>}
+              </main>
+            )
+          }
+          ''',
+
+          'src/components/admin/OrderShipping.tsx': r'''import { saleMoney } from '@/lib/admin-sales'
+
+          export default function OrderShipping({ details }: { details: unknown }) {
+            if (!details || typeof details !== 'object') return null
+            const d = details as {
+              manual?: boolean
+              company?: string
+              service?: string
+              days?: number | null
+              amount_cents?: number
+              volume?: { weight?: number; height?: number; width?: number; length?: number }
+            }
+
+            return (
+              <section className="mb-5 rounded-2xl border border-[#DED4C5] bg-white p-4">
+                <h2 className="text-sm font-medium">Entrega escolhida no checkout</h2>
+                {d.manual ? (
+                  <p className="mt-2 text-sm">Frete a confirmar com a equipe. A entrega ainda não está incluída no total.</p>
+                ) : (
+                  <>
+                    <p className="mt-2 text-sm">{d.company} · {d.service} · {saleMoney(Number(d.amount_cents || 0) / 100)}</p>
+                    <p className="mt-2 text-xs text-[#756B5D]">{d.days == null ? 'Prazo a confirmar' : `${d.days} dia(s) estimado(s) de transporte após a postagem.`}</p>
+                  </>
+                )}
+                {d.volume && (
+                  <p className="mt-2 text-xs text-[#756B5D]">
+                    Pacote cotado: {d.volume.height} × {d.volume.width} × {d.volume.length} cm · {d.volume.weight} kg
+                  </p>
+                )}
+                <p className="mt-2 text-xs text-[#756B5D]">
+                  Cotação registrada no pedido. A etiqueta ainda precisa ser contratada e o rastreio será vinculado na próxima etapa.
+                </p>
+              </section>
+            )
+          }
+          ''',
+
+          'src/lib/shipping-server.ts': r'''import 'server-only'
+
+          import { randomUUID } from 'node:crypto'
+          import type { SupabaseClient } from '@supabase/supabase-js'
+          import type { CheckoutLine, CheckoutQuote } from '@/lib/checkout'
+          import type { ShippingSettings, DeliveryOption } from '@/lib/shipping'
+          import { checkoutHash } from '@/lib/checkout-server'
+          import { melhorEnvio, readQuotes } from '@/lib/melhor-envio'
+
+          export async function shippingSettings(db: SupabaseClient): Promise<ShippingSettings> {
+            const { data, error } = await db.from('serenity_shipping_settings')
+              .select('*').eq('singleton', true).single()
+            if (error) throw new Error('SHIPPING_CONFIGURATION')
+            return data as ShippingSettings
+          }
+
+          export async function deliveryOptions(
+            db: SupabaseClient,
+            items: CheckoutLine[],
+            request: string,
+            cep: string,
+            quote: CheckoutQuote
+          ) {
+            const settings = await shippingSettings(db)
+            const manual = !settings.enabled ||
+              settings.max_units === null ||
+              items.reduce((n, i) => n + i.quantity, 0) > settings.max_units ||
+              items.some(i => settings.manual_slugs.includes(i.slug))
+
+            const volume = {
+              weight: settings.weight_g / 1000,
+              height: Number(settings.height),
+              width: Number(settings.width),
+              length: Number(settings.length),
+              insurance: quote.total_cents / 100,
+            }
+
+            let options: DeliveryOption[], raw: unknown[] = []
+            const providers = new Map<string, unknown>()
+
+            if (manual) {
+              options = [{
+                id: randomUUID(),
+                company: 'Serenity',
+                service: 'Frete a confirmar com a equipe',
+                amount_cents: 0,
+                days: null,
+                manual: true,
+              }]
+            } else {
+              raw = await melhorEnvio('calculate', settings.contact_email || '', {
+                from: { postal_code: settings.origin },
+                to: { postal_code: cep },
+                volumes: [volume],
+                options: { receipt: false, own_hand: false },
+              })
+
+              options = readQuotes(raw)
+                .filter(q => q.price <= 1000000)
+                .slice(0, 50)
+                .map(q => {
+                  const id = randomUUID()
+                  providers.set(id, raw.find(row =>
+                    row && typeof row === 'object' && 'id' in row &&
+                    String((row as { id: unknown }).id) === q.id
+                  ) || null)
+
+                  return {
+                    id,
+                    company: q.company,
+                    service: q.service,
+                    amount_cents: Math.round(q.price * 100),
+                    days: q.days,
+                    manual: false,
+                  }
+                })
+            }
+
+            if (!options.length) {
+              return {
+                options: [],
+                message: 'Nenhuma transportadora retornou um serviço para esse CEP e pacote. Confira o CEP ou fale com o atendimento.',
+              }
+            }
+
+            const expires = new Date(Date.now() + 15 * 60 * 1000).toISOString()
+            const rows = options.map(option => ({
+              id: option.id,
+              request_id: request,
+              cart_hash: checkoutHash(JSON.stringify(items)),
+              destination: cep,
+              subtotal_cents: quote.total_cents,
+              amount_cents: option.amount_cents,
+              manual: option.manual,
+              settings_version: settings.version,
+              expires_at: expires,
+              snapshot: {
+                company: option.company,
+                service: option.service,
+                days: option.days,
+                origin: settings.origin,
+                destination: cep,
+                volume,
+                provider: providers.get(option.id) || null,
+              },
+            }))
+
+            await db.from('serenity_shipping_quotes').delete()
+              .lt('expires_at', new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString())
+
+            const { error } = await db.from('serenity_shipping_quotes').insert(rows)
+            if (error) throw new Error('SHIPPING_QUOTE_SAVE')
+
+            return {
+              options,
+              message: manual
+                ? 'Este pedido precisa de confirmação do frete pela equipe. O valor da entrega será informado antes do pagamento.'
+                : 'Escolha uma entrega. A cotação vale por 15 minutos; o prazo de transporte começa após a postagem.',
+            }
+          }
+
+          export function deliveryError(error: unknown) {
+            const message = error && typeof error === 'object' && 'message' in error
+              ? String(error.message)
+              : ''
+
+            if (message.includes('SHIPPING_QUOTE_EXPIRED')) {
+              return 'A cotação expirou ou os dados mudaram. Calcule o frete novamente.'
+            }
+            if (message.includes('SHIPPING_CONFIGURATION')) {
+              return 'As configurações de envio ainda não estão disponíveis. Fale com o atendimento.'
+            }
+            return ''
+          }
+          ''',
+
+          'src/lib/shipping.ts': r'''export interface ShippingSettings {
+            origin: string
+            weight_g: number
+            height: number
+            width: number
+            length: number
+            max_units: number | null
+            enabled: boolean
+            contact_email: string | null
+            manual_slugs: string[]
+            version: number
+          }
+
+          export interface DeliveryOption {
+            id: string
+            company: string
+            service: string
+            amount_cents: number
+            days: number | null
+            manual: boolean
+          }
+
+          export interface DeliveryReceipt {
+            number: number
+            total: number
+            shipping: number
+            shippingPending: boolean
+            reservedUntil: string | null
+          }
+
+          export function shippingFields(data: FormData, contact: string) {
+            function numeric(key: string, min: number, max: number, integer = false): number {
+              const raw = String(data.get(key) || '').trim()
+              if (!/^\d+(?:[.,]\d{1,2})?$/.test(raw)) {
+                throw new Error('Confira o campo ' + key + '.')
+              }
+
+              const n = Number(raw.replace(',', '.'))
+              if (!Number.isFinite(n) || n < min || n > max || (integer && !Number.isInteger(n))) {
+                throw new Error('Confira o campo ' + key + '.')
+              }
+              return n
+            }
+
+            const origin = String(data.get('origin') || '').trim().replace('-', '')
+            if (!/^\d{8}$/.test(origin)) throw new Error('Confira o CEP de origem.')
+
+            const max_units = String(data.get('max_units') || '').trim()
+              ? numeric('max_units', 1, 49950, true)
+              : null
+            const enabled = data.get('enabled') === 'on'
+
+            if (enabled && max_units === null) {
+              throw new Error('Confirme o limite de peças da embalagem antes de ativar o frete automático.')
+            }
+
+            const manual_slugs = Array.from(new Set(
+              String(data.get('manual_slugs') || '').split(/[\s,]+/).filter(Boolean)
+            ))
+
+            if (
+              manual_slugs.length > 200 ||
+              manual_slugs.some(s => !/^[a-zA-Z0-9_-]{1,180}$/.test(s))
+            ) {
+              throw new Error('Confira os slugs que exigem frete manual.')
+            }
+
+            return {
+              origin,
+              weight_g: numeric('weight_g', 1, 1000000, true),
+              height: numeric('height', 0.1, 1000),
+              width: numeric('width', 0.1, 1000),
+              length: numeric('length', 0.1, 1000),
+              max_units,
+              enabled,
+              contact_email: contact,
+              manual_slugs,
+            }
+          }
+          ''',
+          }
+
+          marker = '// Serenity: frete no checkout v1'
+
+          def read(name):
+              p = root / name
+              if not p.is_file():
+                  raise SystemExit(
+                      'Falta o arquivo ' + name +
+                      '. Nenhum arquivo foi alterado.'
+                  )
+              return p.read_text(encoding='utf-8')
+
+          read('src/lib/melhor-envio.ts')
+          read('src/app/admin/frete/ShippingTest.tsx')
+
+          actions = read('src/app/checkout/actions.ts')
+          if 'serenity_stock_review' not in actions:
+              raise SystemExit(
+                  'Envie o checkout atual antes desta atualização. Nenhum arquivo foi alterado.'
+              )
+
+          name = 'src/app/admin/pedidos/[id]/page.tsx'
+          source = read(name)
+
+          if marker not in source:
+              source, count = re.subn(
+                  r'<OrderOrigin\b',
+                  '<OrderShipping details={(order as typeof order & {shipping_details?:unknown}).shipping_details} /><OrderOrigin',
+                  source,
+                  count=1
+              )
+
+              if count != 1:
+                  raise SystemExit(
+                      'Envie a tela atual do pedido para incluir o frete. Nenhum arquivo foi alterado.'
+                  )
+
+              source = (
+                  "import OrderShipping from '@/components/admin/OrderShipping'\n" +
+                  source + '\n' + marker + '\n'
+              )
+              files[name] = source
+
+          for name, content in files.items():
+              target = root / name
+              target.parent.mkdir(parents=True, exist_ok=True)
+              target.write_text(content, encoding='utf-8')
+
+          print('Configurações de envio, cotação no checkout e entrega no pedido instaladas.')
+          PY
+
+      - run: npm ci --ignore-scripts
+
+      - run: npx tsc --noEmit --incremental false
+
+      - run: npx next lint --no-cache
+
+      - name: Salvar atualização
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git add src/app/checkout src/app/admin/frete src/app/admin/pedidos/'[id]'/page.tsx src/components/admin/OrderShipping.tsx src/lib/shipping.ts src/lib/shipping-server.ts
+
+          if git diff --cached --quiet; then
+            echo "Frete já conectado."
+          else
+            git commit -m "Salvar configurações e integrar cotação de frete ao checkout"
+            git push origin HEAD:main
+          fi

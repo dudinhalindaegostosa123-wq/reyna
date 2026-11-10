@@ -1,0 +1,15 @@
+# Etiquetas: dados salvos e pedidos com desconto
+
+A abertura do envio rápido (também na página individual de pedido pago) usa os campos já salvos. O endereço e a embalagem ficam recolhidos quando não há pendências. O custo é consultado automaticamente, preservando a transportadora do checkout. Pedidos antigos sem serviço exato ainda precisam selecionar uma opção real da cotação. Não se inventam telefone, documento, endereço ou transportadora.
+
+Rascunhos com versão antiga são renovados com os campos efetivos via RPC que valida versão; operações preparadas, em criação ou incertas não são renovadas nem repetidas. Alterações válidas de CEP/pacote levam à nova cotação automática, não a uma confirmação manual redundante. Dados obrigatórios ausentes, pagamento/frete realmente pendente e rejeições da transportadora continuam visíveis.
+
+O bloqueio indiscriminado por `discount != 0` foi substituído pelo rateio proporcional do desconto salvo sobre as linhas do pedido, em centavos inteiros. O resto é distribuído de forma determinística. Uma linha pode virar duas no Melhor Envio quando unidades precisam diferir em um centavo. Quantidades e valor líquido são conservados; o frete não participa do valor declarado. Subtotal divergente, desconto negativo/maior que os itens ou itens inválidos continuam bloqueados. Pedidos antigos já importados com linhas líquidas e desconto zero não recebem desconto novamente. O valor declarado e o seguro usam as mesmas linhas líquidas. Cotações de pedidos com desconto anteriores a esse cálculo ficam desatualizadas e precisam ser refeitas automaticamente antes da preparação; etiquetas já preparadas/compradas não são alteradas.
+
+Depois de preparar, o custo real retornado pelo Melhor Envio é consultado automaticamente para disponibilizar **Comprar etiqueta — R$ ...**, sem o clique separado em Conferir valor. Apenas abrir a tela ou consultar frete não compra uma etiqueta. A confirmação de compra com valor visível, os bloqueios de duplicação e a validação de mudança de custo continuam ativos. Não houve alterações em preços, pedido original, pagamento do cliente ou estrutura SQL.
+
+Validação local: testes de rateio com arredondamento, validação de valores, fluxo rápido/locks, escopos e integração de etiquetas existentes; TypeScript e lint. A contratação real e eventual exigência documental dependem do Melhor Envio; não foram executadas nesta tarefa.
+
+## Seleção na central
+
+A seleção agora aceita pedidos ainda não preparados (`empty`, `quoted` ou `rejected`), além dos preparados. O botão Preparar selecionadas usa os dados salvos, consulta o frete e prepara automaticamente somente se houver um serviço inequívoco. Depois consulta o custo real e apresenta o total para compra. Não exige abrir os pedidos individualmente. Envios em criação/incertos, já comprados, não verificados ou com frete realmente pendente continuam excluídos. Pedidos antigos com várias opções de transportadora precisam de uma escolha explícita na seção do envio. A lista não recarrega após a preparação, para não perder a seleção quando o filtro é Falta preparar; recarrega após a compra.

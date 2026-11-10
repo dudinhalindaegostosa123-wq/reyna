@@ -1,0 +1,231 @@
+name: Otimizar banners
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: otimizar-banners-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  otimizar:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Baixar o projeto
+        uses: actions/checkout@v4
+
+      - name: Preparar Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Preparar Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Instalar conversor
+        run: python -m pip install Pillow==12.3.0
+
+      - name: Converter imagens e atualizar caminhos
+        run: |
+          python -u - <<'PY'
+          from pathlib import Path
+          from PIL import Image, ImageOps
+          import os
+
+          root = Path.cwd()
+          banners = root / 'public' / 'banners'
+          replacements = {}
+          converted = []
+
+          for source in sorted(banners.glob('*.png')):
+              target = source.with_suffix('.webp')
+
+              if target.exists():
+                  raise SystemExit(
+                      f'Já existe {target.name}. Nenhum commit foi salvo.'
+                  )
+
+              with Image.open(source) as original:
+                  image = ImageOps.exif_transpose(original)
+
+                  alpha = (
+                      'A' in image.getbands()
+                      or 'transparency' in image.info
+                  )
+
+                  image = image.convert(
+                      'RGBA' if alpha else 'RGB'
+                  )
+
+                  options = {
+                      'quality': 92,
+                      'method': 6,
+                      'exact': True,
+                  }
+
+                  if original.info.get('icc_profile'):
+                      options['icc_profile'] = (
+                          original.info['icc_profile']
+                      )
+
+                  image.save(target, 'WEBP', **options)
+
+                  with Image.open(target) as check:
+                      check.load()
+
+                      if check.size != image.size:
+                          raise SystemExit(
+                              f'Dimensões incorretas: {target.name}'
+                          )
+
+                      if alpha:
+                          before = image.getchannel('A').tobytes()
+
+                          after = (
+                              check.convert('RGBA')
+                              .getchannel('A')
+                              .tobytes()
+                          )
+
+                          if before != after:
+                              raise SystemExit(
+                                  f'Transparência alterada: {target.name}'
+                              )
+
+              old_size = source.stat().st_size
+              new_size = target.stat().st_size
+
+              if new_size >= old_size:
+                  target.unlink()
+                  print(f'Mantido em PNG: {source.name}')
+                  continue
+
+              replacements[
+                  f'/banners/{source.name}'
+              ] = f'/banners/{target.name}'
+
+              converted.append(
+                  (source, target, old_size, new_size)
+              )
+
+              print(
+                  f'{source.name}: '
+                  f'{old_size:,} -> {new_size:,} bytes'
+              )
+
+          extensions = {
+              '.ts',
+              '.tsx',
+              '.js',
+              '.jsx',
+              '.css',
+              '.json',
+              '.mjs',
+              '.mdx',
+          }
+
+          changed = 0
+
+          for path in sorted((root / 'src').rglob('*')):
+              if not path.is_file():
+                  continue
+
+              if path.suffix not in extensions:
+                  continue
+
+              original = path.read_text(encoding='utf-8')
+              updated = original
+
+              for old, new in replacements.items():
+                  updated = updated.replace(old, new)
+
+              if updated != original:
+                  path.write_text(updated, encoding='utf-8')
+                  changed += 1
+
+          for path in (root / 'src').rglob('*'):
+              if not path.is_file():
+                  continue
+
+              if path.suffix not in extensions:
+                  continue
+
+              text = path.read_text(encoding='utf-8')
+
+              for old in replacements:
+                  if old in text:
+                      raise SystemExit(
+                          f'Caminho antigo em '
+                          f'{path.relative_to(root)}: {old}'
+                      )
+
+          for source, target, _, _ in converted:
+              if (
+                  not target.is_file()
+                  or target.stat().st_size == 0
+              ):
+                  raise SystemExit(
+                      f'Imagem ausente: {target.name}'
+                  )
+
+              source.unlink()
+
+          before = sum(item[2] for item in converted)
+          after = sum(item[3] for item in converted)
+
+          saving = (
+              (1 - after / before) * 100
+              if before
+              else 0
+          )
+
+          summary = (
+              '# Banners otimizados\n\n'
+              f'- Imagens convertidas: **{len(converted)}**\n'
+              f'- Arquivos de código atualizados: **{changed}**\n'
+              f'- Antes: **{before / 1_000_000:.2f} MB**\n'
+              f'- Depois: **{after / 1_000_000:.2f} MB**\n'
+              f'- Redução: **{saving:.1f}%**\n\n'
+              'Dimensões e transparência preservadas. '
+              'WebP com qualidade 92.\n'
+          )
+
+          with open(
+              os.environ['GITHUB_STEP_SUMMARY'],
+              'a',
+              encoding='utf-8',
+          ) as report:
+              report.write(summary)
+          PY
+
+      - name: Instalar dependências do site
+        run: npm ci
+
+      - name: Conferir TypeScript
+        run: npx tsc --noEmit --incremental false
+
+      - name: Conferir lint
+        run: npx next lint --no-cache
+
+      - name: Salvar otimização
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git add -- public/banners src
+
+          if git diff --cached --quiet; then
+            echo "Nenhuma alteração necessária."
+            exit 0
+          fi
+
+          git commit -m "Otimiza banners em WebP e atualiza referências"
+          git push

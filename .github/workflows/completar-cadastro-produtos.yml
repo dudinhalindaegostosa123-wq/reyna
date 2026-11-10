@@ -1,0 +1,799 @@
+name: Completar cadastro de produtos
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: completar-cadastro-produtos
+  cancel-in-progress: false
+
+jobs:
+  instalar:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Criar arquivos
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          root = Path.cwd()
+
+          files = {
+              'src/app/admin/produtos/[id]/gerenciar/CatalogManager.tsx': r''''use client'
+
+          import { useState } from 'react'
+          import type { ReactNode } from 'react'
+          import { useFormState, useFormStatus } from 'react-dom'
+          import Image from 'next/image'
+          import type { ProductBundle } from '@/lib/admin-product-editor'
+          import { manageProduct } from '../../catalog-actions'
+
+          export interface CatalogMedia {
+            id: string
+            media_type: string
+            storage_path: string | null
+            thumbnail_path: string | null
+            youtube_id: string | null
+            variant_id: string | null
+            alt_text: string
+            position: number
+          }
+
+          const field = 'mt-2 min-h-[44px] min-w-0 w-full rounded-xl border border-[#DFD7CB] bg-white px-3 py-2 text-base sm:text-sm'
+          const card = 'rounded-3xl border border-[#E5DED3] bg-white p-5 sm:p-7'
+
+          function Submit({ label }: { label: string }) {
+            const { pending } = useFormStatus()
+            return <button disabled={pending} className="min-h-[40px] rounded-full bg-[#292621] px-5 py-2 text-xs text-white disabled:opacity-50">{pending ? 'Salvando…' : label}</button>
+          }
+
+          function ActionForm({ id, operation, label, children, confirm = false }: { id: string; operation: string; label: string; children?: ReactNode; confirm?: boolean }) {
+            const [state, action] = useFormState(manageProduct.bind(null, id, operation), { error: '' })
+            return <form action={action} className="space-y-3" onSubmit={event => { if (confirm && !window.confirm('Remover esta mídia da galeria do produto?')) event.preventDefault() }}>
+              {children}
+              {state.error && <p role="alert" className="text-sm text-red-800">{state.error}</p>}
+              <Submit label={label} />
+            </form>
+          }
+
+          function Input({ name, label, value = '', required = false }: { name: string; label: string; value?: string | number | null; required?: boolean }) {
+            return <label className="block text-xs text-[#625B51]">{label}<input name={name} defaultValue={value ?? ''} maxLength={300} required={required} className={field} /></label>
+          }
+
+          function AttributeFields({ initial = {} }: { initial?: Record<string, string> }) {
+            const [pairs, setPairs] = useState<[string, string][]>(Object.keys(initial).length ? Object.entries(initial) : [['', '']])
+
+            function update(index: number, part: 0 | 1, value: string) {
+              setPairs(old => old.map((pair, i) => i === index ? part === 0 ? [value, pair[1]] : [pair[0], value] : pair))
+            }
+
+            return <div className="rounded-2xl bg-[#F8F5EF] p-4">
+              <p className="mb-3 text-xs font-medium">Atributos · Exemplo: Cor → Azul; Medida → 8 mm</p>
+              <input type="hidden" name="attributes" value={JSON.stringify(pairs)} />
+
+              <div className="space-y-3">
+                {pairs.map((pair, index) => <div key={index} className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] items-center gap-2">
+                  <input aria-label={`Nome do atributo ${index + 1}`} placeholder="Cor" value={pair[0]} onChange={e => update(index, 0, e.target.value)} maxLength={120} required className={field} />
+                  <input aria-label={`Valor do atributo ${index + 1}`} placeholder="Azul" value={pair[1]} onChange={e => update(index, 1, e.target.value)} maxLength={180} required className={field} />
+                  <button type="button" aria-label={`Remover atributo ${index + 1}`} disabled={pairs.length === 1} onClick={() => setPairs(old => old.filter((_, i) => i !== index))} className="mt-2 min-h-[44px] px-2 text-lg disabled:opacity-30">×</button>
+                </div>)}
+              </div>
+
+              <button type="button" disabled={pairs.length >= 20} onClick={() => setPairs(old => [...old, ['', '']])} className="mt-4 text-xs underline underline-offset-4 disabled:opacity-40">+ Outro atributo</button>
+            </div>
+          }
+
+          function VariantSelect({ bundle, current = '' }: { bundle: ProductBundle; current?: string }) {
+            return <label className="block text-xs text-[#625B51]">Vincular foto a
+              <select name="variant_id" defaultValue={current} className={field}>
+                <option value="">Produto geral</option>
+                {bundle.variants.map(v => <option key={v.id} value={v.id}>{v.name} · {Object.values((v.attributes || {}) as Record<string, string>).join(' / ')}</option>)}
+              </select>
+            </label>
+          }
+
+          export default function CatalogManager({ bundle, media, storageUrl, requestId }: { bundle: ProductBundle; media: CatalogMedia[]; storageUrl: string; requestId: string }) {
+            const id = String(bundle.product.id)
+            const photos = media.filter(item => item.media_type === 'image')
+            const videos = media.filter(item => item.media_type === 'youtube')
+            const supported = ['simple', 'variable'].includes(String(bundle.product.product_type))
+            const imageUrl = (path: string) => `${storageUrl}/storage/v1/object/public/produtos/${path.split('/').map(encodeURIComponent).join('/')}`
+
+            return <div className="space-y-5">
+              <section className={card}>
+                <h2 className="mb-4 text-lg font-medium">Categorias e organização</h2>
+
+                <ActionForm id={id} operation="organize" label="Salvar organização">
+                  <Input name="material" label="Material" value={String(bundle.product.material || '')} />
+
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    <label className="block text-xs text-[#625B51]">Categorias · Uma por linha
+                      <textarea name="categories" rows={5} maxLength={16000} defaultValue={((bundle.product.categories || []) as string[]).join('\n')} className={field} />
+                    </label>
+                    <label className="block text-xs text-[#625B51]">Tags / termos de busca · Um por linha
+                      <textarea name="tags" rows={5} maxLength={16000} defaultValue={((bundle.product.tags || []) as string[]).join('\n')} className={field} />
+                    </label>
+                  </div>
+
+                  <p className="text-[11px] leading-relaxed text-[#81796C]">Use os mesmos nomes das categorias existentes para manter a peça nas regiões e filtros da loja. As categorias são usadas para organizar os produtos.</p>
+                  <label className="flex items-center gap-2 text-xs"><input type="checkbox" name="featured" defaultChecked={bundle.product.featured === true} />Marcar como destaque</label>
+                </ActionForm>
+              </section>
+
+              <section className={card}>
+                <h2 className="mb-3 text-lg font-medium">Fotos ({photos.length})</h2>
+                <p className="mb-5 text-xs leading-relaxed text-[#81796C]">A capa é a primeira foto geral do produto. As fotos vinculadas a uma variação acompanham aquela opção. Use JPG, PNG ou WebP de até 3 MB por foto.</p>
+
+                <ActionForm id={id} operation="image_add" label="Enviar foto">
+                  <label className="block text-xs">Escolher foto
+                    <input name="image" type="file" accept="image/jpeg,image/png,image/webp" required className={`${field} file:mr-3 file:rounded-full file:border-0 file:bg-[#F0EBE3] file:px-3 file:py-2 file:text-xs`} />
+                  </label>
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    <Input name="alt_text" label="Descrição da foto · Opcional" />
+                    <VariantSelect bundle={bundle} />
+                  </div>
+                </ActionForm>
+
+                <p className="mt-4 text-[11px] text-[#81796C]">O original é guardado, e as versões da loja e miniaturas são preparadas automaticamente.</p>
+
+                <div className="mt-7 grid gap-4 sm:grid-cols-2">
+                  {photos.map(photo => <article key={photo.id} className="min-w-0 rounded-2xl border border-[#E5DED3] p-4">
+                    {photo.storage_path && <div className="relative mb-4 aspect-square overflow-hidden rounded-xl bg-[#FAFAF8]">
+                      <Image src={imageUrl(photo.thumbnail_path || photo.storage_path)} alt={photo.alt_text || bundle.product.name} fill sizes="(max-width: 640px) 85vw, 400px" className="object-contain" />
+                    </div>}
+
+                    <p className="mb-3 text-[11px] text-[#81796C]">{photo.variant_id ? 'Foto de variação' : 'Foto geral do produto'}</p>
+
+                    <div className="space-y-4">
+                      {!photo.variant_id && <ActionForm id={id} operation="media_cover" label="Definir como capa">
+                        <input type="hidden" name="media_id" value={photo.id} />
+                      </ActionForm>}
+
+                      <div className="flex flex-wrap gap-2">
+                        {[['up', '← Antes'], ['down', 'Depois →']].map(([direction, label]) => <ActionForm key={direction} id={id} operation="media_move" label={label}>
+                          <input type="hidden" name="media_id" value={photo.id} />
+                          <input type="hidden" name="direction" value={direction} />
+                        </ActionForm>)}
+                      </div>
+
+                      <ActionForm id={id} operation="media_assign" label="Salvar vínculo">
+                        <input type="hidden" name="media_id" value={photo.id} />
+                        <VariantSelect bundle={bundle} current={photo.variant_id || ''} />
+                      </ActionForm>
+
+                      <ActionForm id={id} operation="media_remove" label="Remover da galeria" confirm>
+                        <input type="hidden" name="media_id" value={photo.id} />
+                      </ActionForm>
+                    </div>
+                  </article>)}
+                </div>
+
+                {!photos.length && <p className="mt-6 text-sm text-[#81796C]">Nenhuma foto cadastrada ainda.</p>}
+              </section>
+
+              <section className={card}>
+                <h2 className="mb-3 text-lg font-medium">Vídeo do produto</h2>
+                <p className="mb-5 text-xs text-[#81796C]">Adicione um link do YouTube ou Shorts. O vídeo será exibido dentro da página do produto. Esta versão permite um vídeo por produto.</p>
+
+                {videos.map(video => <div key={video.id} className="mb-5 rounded-2xl bg-[#F8F5EF] p-4">
+                  <a href={`https://www.youtube.com/watch?v=${video.youtube_id}`} target="_blank" rel="noopener noreferrer" className="mb-4 block break-all text-xs underline">Conferir vídeo: {video.youtube_id}</a>
+                  <ActionForm id={id} operation="media_remove" label="Remover vídeo" confirm>
+                    <input type="hidden" name="media_id" value={video.id} />
+                  </ActionForm>
+                </div>)}
+
+                {!videos.length && <ActionForm id={id} operation="youtube_add" label="Adicionar vídeo">
+                  <input type="hidden" name="request_id" value={requestId} />
+                  <Input name="youtube" label="Link do YouTube / Shorts" required />
+                </ActionForm>}
+              </section>
+
+              {supported && <section className={card}>
+                <h2 className="mb-3 text-lg font-medium">Adicionar variação</h2>
+                <p className="mb-5 text-xs leading-relaxed text-[#81796C]">Cadastre cada combinação disponível, por exemplo Cor: Azul e Medida: 8 mm. Ao adicionar a primeira variação, o produto passa a usar as opções e os preços das variações.</p>
+
+                <ActionForm id={id} operation="variant_add" label="Adicionar variação">
+                  <input type="hidden" name="request_id" value={requestId} />
+
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    <Input name="name" label="Nome da variação" value={bundle.product.name} required />
+                    <Input name="sku" label="SKU · Opcional" />
+                  </div>
+
+                  <AttributeFields />
+
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    <Input name="regular_price" label="Preço base (R$)" value={bundle.product.regular_price} />
+                    <Input name="sale_price" label="Preço promocional (R$) · Opcional" />
+                    <Input name="stock_quantity" label="Quantidade · Vazio: sem quantidade definida" />
+
+                    <label className="block text-xs">Situação do estoque
+                      <select name="stock_status" defaultValue="outofstock" className={field}>
+                        <option value="outofstock">Sem estoque</option>
+                        <option value="instock">Em estoque</option>
+                        <option value="onbackorder">Sob encomenda</option>
+                      </select>
+                    </label>
+                  </div>
+                </ActionForm>
+              </section>}
+
+              {bundle.variants.length > 0 && <section className={card}>
+                <h2 className="mb-4 text-lg font-medium">Atributos das variações</h2>
+                <p className="mb-5 text-xs text-[#81796C]">Preços, estoque e a opção de desabilitar continuam na tela de edição do produto.</p>
+
+                <div className="space-y-3">
+                  {bundle.variants.map(variant => <details key={variant.id} className="rounded-2xl border border-[#E5DED3] p-4">
+                    <summary className="cursor-pointer text-sm">{variant.name} · {Object.values((variant.attributes || {}) as Record<string, string>).join(' / ')}</summary>
+
+                    <div className="mt-4">
+                      <ActionForm id={id} operation="variant_attributes" label="Salvar atributos">
+                        <input type="hidden" name="variant_id" value={variant.id} />
+                        <input type="hidden" name="original_name" value={variant.name} />
+                        <input type="hidden" name="original_attributes" value={JSON.stringify(variant.attributes || {})} />
+                        <Input name="name" label="Nome da variação" value={variant.name} required />
+                        <AttributeFields initial={(variant.attributes || {}) as Record<string, string>} />
+                      </ActionForm>
+                    </div>
+                  </details>)}
+                </div>
+              </section>}
+            </div>
+          }
+          ''',
+
+              'src/app/admin/produtos/[id]/gerenciar/page.tsx': r'''import { randomUUID } from 'crypto'
+          import Link from 'next/link'
+          import { notFound } from 'next/navigation'
+          import { adminDatabase } from '@/lib/admin-auth'
+          import type { ProductBundle } from '@/lib/admin-product-editor'
+          import CatalogManager from './CatalogManager'
+          import type { CatalogMedia } from './CatalogManager'
+
+          export default async function ProductManagement({ params, searchParams = {} }: { params: { id: string }; searchParams?: { salvo?: string } }) {
+            const { db } = await adminDatabase()
+
+            if (!/^[a-f0-9-]{36}$/i.test(params.id)) notFound()
+
+            const [product, media] = await Promise.all([
+              db.rpc('serenity_admin_read_product', { p_product_id: params.id }),
+              db.from('product_media').select('*').eq('product_id', params.id).order('position').order('id'),
+            ])
+
+            if (product.error || media.error) throw new Error('ADMIN_MANAGEMENT_READ')
+            if (!product.data) notFound()
+
+            const bundle = product.data as ProductBundle
+            const storageUrl = process.env.SUPABASE_URL?.trim()
+
+            if (!storageUrl) throw new Error('ADMIN_CONFIGURATION')
+
+            return <main className="mx-auto max-w-5xl px-4 py-7 sm:px-8 md:py-10">
+              <Link href={`/admin/produtos/${params.id}`} className="text-xs text-[#81796C]">← Voltar à edição</Link>
+              <h1 className="mt-6 text-2xl font-medium md:text-3xl">Fotos, vídeos e variações</h1>
+              <p className="mb-6 mt-2 text-sm text-[#81796C]">{bundle.product.name}</p>
+
+              {searchParams.salvo === '1' && <p role="status" className="mb-5 rounded-2xl bg-[#EAF1E5] p-4 text-sm text-[#42603A]">Alteração salva.</p>}
+
+              <CatalogManager key={bundle.version} bundle={bundle} media={(media.data || []) as CatalogMedia[]} storageUrl={storageUrl} requestId={randomUUID()} />
+            </main>
+          }
+          ''',
+
+              'src/app/admin/produtos/catalog-actions.ts': r''''use server'
+
+          import { randomUUID } from 'crypto'
+          import sharp from 'sharp'
+          import { redirect } from 'next/navigation'
+          import { revalidatePath, revalidateTag } from 'next/cache'
+          import { adminDatabase } from '@/lib/admin-auth'
+          import { amount, quantity } from '@/lib/admin-product-editor'
+          import { attributes, lines, uuid, youtubeId } from '@/lib/admin-catalog-tools'
+
+          export interface CatalogState { error: string }
+
+          function text(form: FormData, key: string, max = 300): string {
+            const input = form.get(key)
+            if (typeof input !== 'string' || input.length > max) throw new Error(`Confira o campo ${key}.`)
+            return input.trim()
+          }
+
+          export async function createProduct(_state: CatalogState, form: FormData): Promise<CatalogState> {
+            const { db } = await adminDatabase()
+            let id: string
+
+            try {
+              id = uuid(form.get('request_id'))
+              const name = text(form, 'name')
+
+              if (!name) throw new Error('Preencha o nome da peça.')
+
+              const type = text(form, 'product_type')
+
+              if (!['simple', 'variable'].includes(type)) throw new Error('Escolha o tipo do produto.')
+
+              const stem = name.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 130) || 'produto'
+
+              const { error } = await db.rpc('serenity_admin_manage_catalog', {
+                p_product_id: id,
+                p_operation: 'create',
+                p_payload: {
+                  name,
+                  slug: `${stem}-${id}`,
+                  product_type: type,
+                },
+              })
+
+              if (error) throw new Error('Não foi possível criar o produto. Confira se o novo SQL foi executado.')
+            } catch (error) {
+              return { error: error instanceof Error ? error.message : 'Não foi possível criar o produto.' }
+            }
+
+            revalidatePath('/admin/produtos')
+            redirect(`/admin/produtos/${id}`)
+          }
+
+          export async function manageProduct(id: string, operation: string, _state: CatalogState, form: FormData): Promise<CatalogState> {
+            const { db } = await adminDatabase()
+            const uploaded: string[] = []
+            let pendingMediaId: string | null = null
+
+            try {
+              uuid(id)
+
+              const { data: parent, error: parentError } = await db.from('products').select('id,slug').eq('id', id).maybeSingle()
+
+              if (parentError || !parent) throw new Error('Produto não encontrado.')
+
+              let payload: Record<string, unknown>
+              let rpcOperation = operation
+
+              if (operation === 'organize') {
+                payload = {
+                  material: text(form, 'material', 180),
+                  categories: lines(text(form, 'categories', 16000)),
+                  tags: lines(text(form, 'tags', 16000)),
+                  featured: form.get('featured') === 'on',
+                }
+
+              } else if (operation === 'variant_add' || operation === 'variant_attributes') {
+                const name = text(form, 'name')
+
+                if (!name) throw new Error('Preencha o nome da variação.')
+
+                payload = {
+                  name,
+                  attributes: attributes(text(form, 'attributes', 16000)),
+                }
+
+                if (operation === 'variant_add') {
+                  const regular = amount(text(form, 'regular_price', 40), 'Preço base')
+                  const sale = amount(text(form, 'sale_price', 40), 'Preço promocional')
+
+                  if (sale !== null && (regular === null || sale >= regular)) throw new Error('O preço promocional deve ser menor que o preço base.')
+
+                  const status = text(form, 'stock_status', 30)
+
+                  if (!['instock', 'outofstock', 'onbackorder'].includes(status)) throw new Error('Situação de estoque inválida.')
+
+                  payload = {
+                    ...payload,
+                    id: uuid(form.get('request_id')),
+                    sku: text(form, 'sku', 180) || null,
+                    regular_price: regular,
+                    sale_price: sale,
+                    stock_status: status,
+                    stock_quantity: quantity(text(form, 'stock_quantity', 40)),
+                  }
+                } else {
+                  const old = JSON.parse(text(form, 'original_attributes', 20000))
+
+                  payload = {
+                    ...payload,
+                    id: uuid(form.get('variant_id')),
+                    original_name: text(form, 'original_name'),
+                    original_attributes: old,
+                  }
+                }
+
+              } else if (operation === 'youtube_add') {
+                const youtube = youtubeId(text(form, 'youtube', 1000))
+
+                payload = {
+                  id: uuid(form.get('request_id')),
+                  media_type: 'youtube',
+                  youtube_id: youtube,
+                  source_url: `https://www.youtube.com/watch?v=${youtube}`,
+                  alt_text: '',
+                }
+
+                rpcOperation = 'media_add'
+
+              } else if (operation === 'image_add') {
+                const file = form.get('image')
+
+                if (!file || typeof file === 'string' || file.size < 1 || file.size > 3 * 1024 * 1024) throw new Error('Escolha uma foto JPG, PNG ou WebP de até 3 MB.')
+
+                const variant = text(form, 'variant_id', 40)
+
+                if (variant) {
+                  uuid(variant)
+
+                  const owned = await db.from('product_variants').select('id').eq('id', variant).eq('product_id', id).maybeSingle()
+
+                  if (owned.error || !owned.data) throw new Error('A variação selecionada não pertence a este produto.')
+                }
+
+                const buffer = Buffer.from(await file.arrayBuffer())
+                const metadata = await sharp(buffer, { limitInputPixels: 40000000, animated: false }).metadata()
+
+                if (!['jpeg', 'png', 'webp'].includes(metadata.format || '') || (metadata.pages || 1) > 1) throw new Error('Use uma imagem estática JPG, PNG ou WebP.')
+
+                const gallery = await sharp(buffer, { limitInputPixels: 40000000 }).rotate().resize({
+                  width: 1800,
+                  height: 1800,
+                  fit: 'inside',
+                  withoutEnlargement: true,
+                }).webp({ quality: 94 }).toBuffer()
+
+                const thumbnail = await sharp(buffer, { limitInputPixels: 40000000 }).rotate().resize({
+                  width: 600,
+                  height: 600,
+                  fit: 'inside',
+                  withoutEnlargement: true,
+                }).webp({ quality: 90 }).toBuffer()
+
+                const mediaId = randomUUID()
+                const folder = `admin/${id}/${mediaId}`
+                const originalPath = `${folder}/original.${metadata.format === 'jpeg' ? 'jpg' : metadata.format}`
+                const galleryPath = `${folder}/galeria.webp`
+                const thumbnailPath = `${folder}/miniatura.webp`
+
+                const originals: [string, Buffer, string][] = [
+                  [originalPath, buffer, `image/${metadata.format}`],
+                  [galleryPath, gallery, 'image/webp'],
+                  [thumbnailPath, thumbnail, 'image/webp'],
+                ]
+
+                for (const [path, bytes, contentType] of originals) {
+                  const result = await db.storage.from('produtos').upload(path, bytes, {
+                    contentType,
+                    upsert: false,
+                    cacheControl: '31536000',
+                  })
+
+                  if (result.error) throw new Error('Não foi possível enviar a foto. Confira o espaço disponível no Supabase.')
+
+                  uploaded.push(path)
+                }
+
+                pendingMediaId = mediaId
+
+                payload = {
+                  id: mediaId,
+                  media_type: 'image',
+                  variant_id: variant || null,
+                  storage_path: galleryPath,
+                  thumbnail_path: thumbnailPath,
+                  original_path: originalPath,
+                  alt_text: text(form, 'alt_text', 300),
+                }
+
+                rpcOperation = 'media_add'
+
+              } else if (['media_cover', 'media_move', 'media_remove', 'media_assign'].includes(operation)) {
+                payload = { id: uuid(form.get('media_id')) }
+
+                if (operation === 'media_move') {
+                  const direction = text(form, 'direction', 10)
+
+                  if (!['up', 'down'].includes(direction)) throw new Error('Movimento inválido.')
+
+                  payload.direction = direction
+                }
+
+                if (operation === 'media_assign') {
+                  const variant = text(form, 'variant_id', 40)
+                  payload.variant_id = variant ? uuid(variant) : null
+                }
+
+              } else {
+                throw new Error('Operação inválida.')
+              }
+
+              const result = await db.rpc('serenity_admin_manage_catalog', {
+                p_product_id: id,
+                p_operation: rpcOperation,
+                p_payload: payload,
+              })
+
+              if (result.error) {
+                const message = result.error.message || ''
+
+                throw new Error(
+                  message.includes('DUPLICATE_VARIANT')
+                    ? 'Já existe uma variação habilitada com essa combinação de atributos.'
+                    : message.includes('VIDEO_ALREADY_EXISTS')
+                    ? 'Este produto já tem um vídeo. Remova o link atual para substituí-lo.'
+                    : message.includes('STALE_VARIANT')
+                    ? 'Os atributos foram alterados por outra pessoa. Copie suas alterações e recarregue.'
+                    : message.includes('COVER_REQUIRES_GENERAL_IMAGE')
+                    ? 'Escolha uma foto geral do produto como capa.'
+                    : 'Não foi possível salvar. Confira os campos e se o novo SQL foi instalado.'
+                )
+              }
+
+              revalidateTag('catalog')
+              revalidatePath('/admin/produtos')
+              revalidatePath(`/admin/produtos/${id}`)
+              revalidatePath(`/admin/produtos/${id}/gerenciar`)
+              revalidatePath(`/produto/${parent.slug}`)
+
+            } catch (error) {
+              if (uploaded.length) {
+                let mayRemove = !pendingMediaId
+
+                if (pendingMediaId) {
+                  const check = await db.from('product_media').select('id').eq('id', pendingMediaId).maybeSingle()
+                  mayRemove = !check.error && !check.data
+                }
+
+                if (mayRemove) await db.storage.from('produtos').remove(uploaded)
+              }
+
+              return {
+                error: error instanceof Error ? error.message : 'Não foi possível salvar.',
+              }
+            }
+
+            redirect(`/admin/produtos/${id}/gerenciar?salvo=1`)
+          }
+          ''',
+
+              'src/app/admin/produtos/novo/NewProductForm.tsx': r''''use client'
+
+          import { useFormState, useFormStatus } from 'react-dom'
+          import { createProduct } from '../catalog-actions'
+
+          function Submit() {
+            const { pending } = useFormStatus()
+            return <button disabled={pending} className="mt-6 min-h-[44px] rounded-full bg-[#292621] px-7 text-sm text-white disabled:opacity-50">{pending ? 'Criando…' : 'Criar rascunho'}</button>
+          }
+
+          export default function NewProductForm({ requestId }: { requestId: string }) {
+            const [state, action] = useFormState(createProduct, { error: '' })
+            const field = 'mt-2 min-h-[44px] w-full rounded-xl border border-[#DFD7CB] bg-white px-3 text-base'
+
+            return <form action={action} className="rounded-3xl border border-[#E5DED3] bg-white p-6">
+              <input type="hidden" name="request_id" value={requestId} />
+
+              <label className="block text-xs">Nome da peça
+                <input name="name" required maxLength={300} className={field} />
+              </label>
+
+              <label className="mt-5 block text-xs">Tipo
+                <select name="product_type" defaultValue="simple" className={field}>
+                  <option value="simple">Produto simples</option>
+                  <option value="variable">Produto com variações</option>
+                </select>
+              </label>
+
+              {state.error && <p role="alert" className="mt-4 text-sm text-red-800">{state.error}</p>}
+
+              <Submit />
+            </form>
+          }
+          ''',
+
+              'src/app/admin/produtos/novo/page.tsx': r'''import { randomUUID } from 'crypto'
+          import Link from 'next/link'
+          import { requireAdmin } from '@/lib/admin-auth'
+          import NewProductForm from './NewProductForm'
+
+          export default async function NewProductPage() {
+            await requireAdmin()
+
+            return <main className="mx-auto max-w-2xl px-5 py-10">
+              <Link href="/admin/produtos" className="text-xs text-[#81796C]">← Produtos</Link>
+              <h1 className="mb-3 mt-7 text-3xl font-medium">Novo produto</h1>
+              <p className="mb-7 text-sm text-[#81796C]">A peça será criada como rascunho. Depois, preencha os detalhes, adicione as fotos e publique quando estiver pronta.</p>
+              <NewProductForm requestId={randomUUID()} />
+            </main>
+          }
+          ''',
+
+              'src/lib/admin-catalog-tools.ts': r'''export function youtubeId(input: string): string {
+            let id = input.trim()
+
+            if (!/^[a-zA-Z0-9_-]{11}$/.test(id)) {
+              let url: URL
+
+              try {
+                url = new URL(id)
+              } catch {
+                throw new Error('Cole um link válido do YouTube ou Shorts.')
+              }
+
+              if (url.protocol !== 'https:') throw new Error('Use um link HTTPS do YouTube.')
+
+              if (url.hostname === 'youtu.be') {
+                id = url.pathname.slice(1)
+              } else if (['youtube.com', 'www.youtube.com', 'm.youtube.com'].includes(url.hostname)) {
+                id = url.pathname === '/watch'
+                  ? url.searchParams.get('v') || ''
+                  : /^\/(shorts|embed)\//.test(url.pathname)
+                  ? url.pathname.split('/')[2] || ''
+                  : ''
+              } else {
+                throw new Error('Use um link do YouTube ou Shorts.')
+              }
+            }
+
+            if (!/^[a-zA-Z0-9_-]{11}$/.test(id)) throw new Error('Não foi possível identificar o vídeo.')
+
+            return id
+          }
+
+          export function attributes(input: string): Record<string, string> {
+            let pairs: unknown
+
+            try {
+              pairs = JSON.parse(input)
+            } catch {
+              throw new Error('Confira os atributos da variação.')
+            }
+
+            if (!Array.isArray(pairs) || pairs.length < 1 || pairs.length > 20) throw new Error('Adicione entre 1 e 20 atributos.')
+
+            const result: Record<string, string> = Object.create(null)
+
+            for (const pair of pairs) {
+              if (!Array.isArray(pair) || pair.length !== 2 || pair.some(x => typeof x !== 'string')) throw new Error('Atributo inválido.')
+
+              const key = pair[0].trim()
+              const value = pair[1].trim()
+
+              if (!key || !value || key.length > 120 || value.length > 180) throw new Error('Preencha o atributo e seu valor, por exemplo: Cor e Azul.')
+
+              if (Object.prototype.hasOwnProperty.call(result, key)) throw new Error('Cada atributo deve ter um nome diferente.')
+
+              result[key] = value
+            }
+
+            return result
+          }
+
+          export function lines(input: string): string[] {
+            const values = Array.from(new Set(
+              input.split(/\r?\n/).map(x => x.trim()).filter(Boolean)
+            ))
+
+            if (values.length > 80 || values.some(x => x.length > 180)) throw new Error('Use até 80 itens, com até 180 caracteres cada.')
+
+            return values
+          }
+
+          export function uuid(input: unknown): string {
+            if (typeof input !== 'string' || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(input)) throw new Error('Identificador inválido. Atualize a página.')
+            return input
+          }
+          ''',
+          }
+
+          patches = {}
+
+          listing = root / 'src/app/admin/produtos/page.tsx'
+          editor = root / 'src/app/admin/produtos/[id]/page.tsx'
+          configuration = root / 'next.config.js'
+
+          if not all(p.is_file() for p in (listing, editor, configuration)):
+              raise SystemExit(
+                  'Instale primeiro o editor de produtos. Nenhum arquivo foi alterado.'
+              )
+
+          source = listing.read_text(encoding='utf-8')
+
+          if '/admin/produtos/novo' not in source:
+              if len(re.findall(r'</h1>', source)) != 1:
+                  raise SystemExit(
+                      'A listagem mudou. Envie o arquivo atual para adaptar o botão Novo produto.'
+                  )
+
+              source = source.replace(
+                  '</h1>',
+                  '</h1><Link href="/admin/produtos/novo" className="mt-4 inline-flex min-h-[42px] items-center rounded-full bg-[#292621] px-5 text-xs text-white">+ Novo produto</Link>',
+                  1,
+              )
+
+          patches[listing] = source
+
+          source = editor.read_text(encoding='utf-8')
+
+          if '/gerenciar' not in source:
+              if len(re.findall(r'<ProductEditor\b', source)) != 1:
+                  raise SystemExit(
+                      'A tela de edição mudou. Envie o arquivo atual para adaptar o acesso às fotos.'
+                  )
+
+              link = '<div className="mb-6"><Link href={`/admin/produtos/${params.id}/gerenciar`} className="inline-flex min-h-[44px] items-center rounded-full bg-[#292621] px-6 text-sm text-white">Fotos, vídeos, categorias e novas variações</Link></div>'
+
+              source = re.sub(
+                  r'(?=<ProductEditor\b)',
+                  lambda _: link,
+                  source,
+                  count=1,
+              )
+
+          patches[editor] = source
+
+          source = configuration.read_text(encoding='utf-8')
+          marker = '// Serenity: envio de fotos pelo admin'
+
+          if marker not in source:
+              if 'module.exports' not in source:
+                  raise SystemExit(
+                      'O formato do next.config.js mudou. Nenhum arquivo foi alterado.'
+                  )
+
+              source += '\n' + marker + '\nmodule.exports = { ...module.exports, experimental: { ...module.exports.experimental, serverActions: { ...module.exports.experimental?.serverActions, bodySizeLimit: "4mb" } } }\n'
+
+          patches[configuration] = source
+
+          for name, content in files.items():
+              target = root / name
+
+              if target.exists() and target.read_text(encoding='utf-8') != content:
+                  raise SystemExit(
+                      'Arquivo já existe com outro conteúdo: '
+                      + name
+                      + '. Nenhum arquivo foi alterado.'
+                  )
+
+          for name, content in files.items():
+              target = root / name
+              target.parent.mkdir(parents=True, exist_ok=True)
+              target.write_text(content, encoding='utf-8')
+
+          for target, content in patches.items():
+              target.write_text(content, encoding='utf-8')
+
+          print('Cadastro, variações, categorias, fotos e vídeos instalados.')
+          PY
+
+      - name: Instalar processamento de imagens
+        run: npm install --save-exact --ignore-scripts sharp@0.34.5
+
+      - name: Conferir TypeScript
+        run: npx tsc --noEmit --incremental false
+
+      - name: Conferir lint
+        run: npx next lint --no-cache
+
+      - name: Salvar atualização
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git add src/app/admin/produtos src/lib/admin-catalog-tools.ts next.config.js package.json package-lock.json
+
+          if git diff --cached --quiet; then
+            echo "Atualização já instalada."
+          else
+            git commit -m "Adicionar cadastro, variações e gerenciamento de mídia no admin"
+            git push origin HEAD:main
+          fi

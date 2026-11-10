@@ -1,0 +1,139 @@
+name: Ajustar layout para pedidos
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: instalar-clientes-pedidos
+  cancel-in-progress: false
+
+jobs:
+  ajustar:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Preparar layout existente
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          layout = Path('src/app/admin/layout.tsx')
+
+          if not layout.is_file():
+              raise SystemExit('Não encontrei src/app/admin/layout.tsx.')
+
+          source = layout.read_text(encoding='utf-8')
+
+          if '<AdminNavigation />' not in source:
+              source, count = re.subn(
+                  r'(?<=>)(\s*)\{\s*children\s*\}',
+                  r'\1<><AdminNavigation />{children}</>',
+                  source
+              )
+
+              if count != 1:
+                  raise SystemExit(
+                      'Envie o conteúdo de src/app/admin/layout.tsx. Nenhum arquivo foi alterado.'
+                  )
+
+              if not re.search(
+                  r"import\s+AdminNavigation\s+from\s+['\"]@/components/admin/AdminNavigation['\"]",
+                  source
+              ):
+                  statement = "import AdminNavigation from '@/components/admin/AdminNavigation'\n"
+                  directive = re.match(
+                      r"(\s*['\"]use (?:client|server)['\"];?\s*)",
+                      source
+                  )
+                  position = directive.end() if directive else 0
+                  source = source[:position] + statement + source[position:]
+
+          component = Path('src/components/admin/AdminNavigation.tsx')
+          component.parent.mkdir(parents=True, exist_ok=True)
+
+          if not component.exists():
+              component.write_text(
+                  """'use client'
+
+          import Link from 'next/link'
+          import { usePathname } from 'next/navigation'
+
+          export default function AdminNavigation() {
+            const path = usePathname()
+
+            if (path === '/admin/login') return null
+
+            return (
+              <nav
+                aria-label="Administração"
+                className="border-b border-[#E5DED3] bg-white px-5 py-3"
+              >
+                <div className="mx-auto flex max-w-[1440px] flex-wrap items-center gap-2 text-xs">
+                  <span className="mr-4 font-medium tracking-[0.15em]">
+                    SERENITY
+                  </span>
+
+                  {[
+                    ['/admin/pedidos', 'Vendas e pedidos'],
+                    ['/admin/clientes', 'Clientes'],
+                    ['/admin/produtos', 'Produtos'],
+                  ].map(([href, label]) => (
+                    <Link
+                      key={href}
+                      href={href}
+                      className={`rounded-full px-4 py-2 ${
+                        path.startsWith(href)
+                          ? 'bg-[#292621] text-white'
+                          : 'text-[#756B5D] hover:bg-[#F1EBE1]'
+                      }`}
+                    >
+                      {label}
+                    </Link>
+                  ))}
+
+                  <Link
+                    href="/"
+                    className="ml-auto px-2 py-2 text-[#756B5D]"
+                  >
+                    Ver loja ↗
+                  </Link>
+                </div>
+              </nav>
+            )
+          }
+          """,
+                  encoding='utf-8'
+              )
+
+          layout.write_text(source, encoding='utf-8')
+          print('Layout preparado. Execute Instalar clientes e pedidos novamente.')
+          PY
+
+      - run: npm ci --ignore-scripts
+      - run: npx tsc --noEmit --incremental false
+      - run: npx next lint --no-cache
+
+      - name: Salvar ajuste
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/app/admin/layout.tsx src/components/admin/AdminNavigation.tsx
+
+          if git diff --cached --quiet; then
+            echo "Layout já preparado."
+          else
+            git commit -m "Adaptar navegação de pedidos ao layout atual"
+            git push origin HEAD:main
+          fi

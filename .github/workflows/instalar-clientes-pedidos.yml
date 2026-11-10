@@ -1,0 +1,363 @@
+name: Instalar clientes e pedidos
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: instalar-clientes-pedidos
+  cancel-in-progress: false
+
+jobs:
+  instalar:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Instalar telas do painel
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          root = Path.cwd()
+          files = {
+              'src/app/admin/clientes/CustomerForm.tsx': r''''use client'
+          import { useState } from 'react'
+          import { useRouter } from 'next/navigation'
+          import type { Customer } from '@/lib/admin-sales'
+          import { saveCustomer } from '../pedidos/actions'
+
+          export default function CustomerForm({customer}:{customer?:Customer}) {
+            const [id]=useState(()=>customer?.id || crypto.randomUUID()),[pending,setPending]=useState(false),[message,setMessage]=useState('')
+            async function start(task:()=>Promise<void>) {setPending(true);try {await task()} finally {setPending(false)}}
+            const router=useRouter()
+            const field='mt-1 min-h-[44px] w-full rounded-xl border border-[#DCD4C8] bg-white px-3 py-2 text-base sm:text-sm'
+            return <form onSubmit={e=>{e.preventDefault();setMessage('');const f=new FormData(e.currentTarget);start(async()=>{try {const result=await saveCustomer({id,name:String(f.get('name') || ''),email:String(f.get('email') || ''),phone:String(f.get('phone') || '').replace(/\D/g,''),notes:String(f.get('notes') || '')});setMessage(result.error || 'Cliente salvo.');if(!result.error){router.push(`/admin/clientes?edit=${id}`);router.refresh()}}catch{setMessage('Falha de conexão. Tente novamente.')}})}} className="rounded-3xl border border-[#E5DED3] bg-white p-5 sm:p-7"><h2 className="mb-5 text-lg font-medium">{customer ? 'Editar cliente' : 'Novo cliente'}</h2><fieldset disabled={pending} className="space-y-4 disabled:opacity-50"><label className="block text-xs">Nome<input required name="name" maxLength={180} defaultValue={customer?.name} className={field} autoComplete="name" /></label><label className="block text-xs">E-mail<input name="email" type="email" maxLength={254} defaultValue={customer?.email} className={field} autoComplete="email" /></label><label className="block text-xs">Telefone com DDD<input name="phone" type="tel" maxLength={25} defaultValue={customer?.phone} className={field} autoComplete="tel" /></label><label className="block text-xs">Observações internas<textarea name="notes" maxLength={2000} rows={3} defaultValue={customer?.notes} className={field} /></label><button className="min-h-[44px] rounded-full bg-[#292621] px-6 text-sm text-white">{pending ? 'Salvando…' : 'Salvar cliente'}</button></fieldset>{message && <p role="status" className="mt-4 text-sm">{message}</p>}</form>
+          }
+          ''',
+
+              'src/app/admin/clientes/page.tsx': r'''import Link from 'next/link'
+          import { redirect } from 'next/navigation'
+          import { adminDatabase } from '@/lib/admin-auth'
+          import { saleUuid,saleMoney,SALE_STATUS } from '@/lib/admin-sales'
+          import type { Customer,Order } from '@/lib/admin-sales'
+          import CustomerForm from './CustomerForm'
+
+          export default async function CustomersPage({searchParams={}}:{searchParams?:Record<string,string|string[]|undefined>}) {
+            const {db}=await adminDatabase()
+            const q=typeof searchParams.q==='string' ? searchParams.q.replace(/[^a-zA-Z0-9À-ÿ @.-]/g,' ').trim().slice(0,100) : ''
+            const n=Number(searchParams.page),page=Number.isSafeInteger(n)&&n>0 ? Math.min(n,100000) : 1
+            const selected=typeof searchParams.edit==='string' && saleUuid(searchParams.edit) ? searchParams.edit : ''
+            let query=db.from('serenity_customers').select('id,name,email,phone,notes',{count:'exact'})
+            if(q)query=query.or(`name.ilike.%${q}%,email.ilike.%${q}%,phone.ilike.%${q}%`)
+            const [list,detail,history]=await Promise.all([query.order('created_at',{ascending:false}).order('id').range((page-1)*20,page*20-1),selected ? db.from('serenity_customers').select('id,name,email,phone,notes').eq('id',selected).maybeSingle() : Promise.resolve({data:null,error:null}),selected ? db.from('serenity_orders').select('id,number,status,total').eq('customer_id',selected).order('created_at',{ascending:false}).limit(20) : Promise.resolve({data:[],error:null})])
+            if(list.error?.code==='PGRST103')redirect('/admin/clientes')
+            if(list.error || detail.error || history.error)throw new Error('ADMIN_CUSTOMERS_QUERY')
+            const pages=Math.max(1,Math.ceil((list.count || 0)/20)),customer=detail.data as Customer | null
+            const href=(p:number)=>`/admin/clientes?page=${p}${q ? `&q=${encodeURIComponent(q)}` : ''}`
+            return <main className="mx-auto max-w-7xl px-5 py-8 sm:px-8"><h1 className="text-3xl font-medium tracking-tight">Clientes</h1><p className="mb-7 mt-2 text-sm text-[#81796C]">Contatos e histórico dos pedidos registrados no painel.</p><div className="grid items-start gap-6 lg:grid-cols-[1fr_360px]"><section className="overflow-hidden rounded-3xl border border-[#E5DED3] bg-white"><form method="get" className="flex gap-2 border-b border-[#E5DED3] p-5"><input name="q" defaultValue={q} aria-label="Buscar clientes" placeholder="Nome, e-mail ou telefone" className="min-h-[44px] min-w-0 flex-1 rounded-full border border-[#E5DED3] px-4 text-base sm:text-sm"/><button className="rounded-full bg-[#292621] px-5 text-xs text-white">Buscar</button></form>{(list.data || []).map((c:Customer)=><Link key={c.id} href={`/admin/clientes?edit=${c.id}`} className="block border-b border-[#EEE8DE] px-5 py-4 hover:bg-[#FCFBF8]"><p className="text-sm font-medium">{c.name}</p><p className="mt-1 break-words text-xs text-[#81796C]">{c.email || 'Sem e-mail'} · {c.phone || 'Sem telefone'} · Editar e ver pedidos ↗</p></Link>)}{!list.data?.length && <p className="p-10 text-center text-sm text-[#81796C]">Nenhum cliente encontrado.</p>}<nav aria-label="Paginação de clientes" className="flex justify-between gap-3 p-5 text-xs"><span>Página {page} de {pages}</span><div className="flex gap-4">{page>1 && <Link href={href(page-1)}>← Anterior</Link>}{page<pages && <Link href={href(page+1)}>Próxima →</Link>}</div></nav></section><div><CustomerForm key={customer?.id || 'new'} customer={customer || undefined} />{selected && <Link href="/admin/clientes" className="mt-4 inline-block text-xs underline">Cadastrar outro cliente</Link>}{customer && <section className="mt-5 rounded-3xl border border-[#E5DED3] bg-white p-5"><h2 className="text-sm font-medium">Últimos 20 pedidos</h2>{(history.data || []).map(raw=>{const o=raw as Order;return <Link key={o.id} href={`/admin/pedidos/${o.id}`} className="mt-3 block border-t border-[#E5DED3] pt-3 text-xs">#{o.number} · {saleMoney(o.total)} · {SALE_STATUS[o.status]}</Link>})}{!history.data?.length && <p className="mt-3 text-xs text-[#81796C]">Sem pedidos registrados.</p>}</section>}</div></div></main>
+          }
+          ''',
+
+              'src/app/admin/page.tsx': r'''import { redirect } from 'next/navigation'
+          export default function AdminPage() { redirect('/admin/pedidos') }
+          ''',
+
+              'src/app/admin/pedidos/[id]/page.tsx': r'''import Link from 'next/link'
+          import { notFound } from 'next/navigation'
+          import { adminDatabase } from '@/lib/admin-auth'
+          import { saleUuid,saleMoney,saleDate,SALE_STATUS } from '@/lib/admin-sales'
+          import type { Order } from '@/lib/admin-sales'
+          import OrderStatus from '../OrderStatus'
+
+          export default async function OrderDetail({params}:{params:{id:string}}) {
+            const {db}=await adminDatabase()
+            if(!saleUuid(params.id))notFound()
+            const {data,error}=await db.from('serenity_orders').select('*').eq('id',params.id).maybeSingle()
+            if(error)throw new Error('ADMIN_ORDER_QUERY');if(!data)notFound()
+            const order=data as Order
+            const margin=order.cost===null ? null : order.subtotal-order.discount-order.cost-order.expenses
+            return <main className="mx-auto max-w-5xl px-5 py-8"><Link href="/admin/pedidos" className="text-xs underline">← Voltar aos pedidos</Link><div className="mb-7 mt-5 flex flex-wrap items-end justify-between gap-4"><div><h1 className="text-3xl font-medium">Pedido #{order.number}</h1><p className="mt-2 text-xs text-[#81796C]">{saleDate(order.created_at)} · {SALE_STATUS[order.status]} · Registro manual</p></div><strong className="text-2xl">{saleMoney(order.total)}</strong></div>
+              <section className="rounded-3xl border border-[#E5DED3] bg-white p-5 sm:p-7"><h2 className="text-lg font-medium">{order.customer_snapshot.name}</h2><p className="mt-2 break-words text-sm text-[#81796C]">{order.customer_snapshot.email || 'Sem e-mail'} · {order.customer_snapshot.phone || 'Sem telefone'}</p><div className="mt-5 divide-y divide-[#E5DED3]">{order.items.map((item,i)=><article key={i} className="py-4"><div className="flex items-start justify-between gap-4"><div className="min-w-0"><h3 className="text-sm font-medium">{item.name}</h3>{item.variation && <p className="mt-1 text-xs text-[#81796C]">{item.variation}</p>}{item.anodization && <p className="mt-1 text-xs">Anodização: {item.anodization} {item.voltage} V · + {saleMoney(item.anodization_fee)} por unidade</p>}<p className="mt-2 text-xs text-[#81796C]">{item.quantity} × {saleMoney(item.unit_price)} · Custo unitário: {item.unit_cost===null ? 'não cadastrado' : saleMoney(item.unit_cost)}{item.supplier ? ` · ${item.supplier}` : ''}</p></div><strong className="shrink-0 text-sm">{saleMoney(item.unit_price*item.quantity)}</strong></div></article>)}</div>
+                <dl className="mt-5 grid grid-cols-2 gap-3 border-t border-[#E5DED3] pt-5 text-sm">{[['Produtos',saleMoney(order.subtotal)],['Desconto',saleMoney(order.discount)],['Frete cobrado',saleMoney(order.shipping)],['Total do pedido',saleMoney(order.total)],['Despesas da venda',saleMoney(order.expenses)],['Custo das peças',order.cost===null ? 'Incompleto' : saleMoney(order.cost)],['Margem de contribuição',margin===null ? 'Custos pendentes' : saleMoney(margin)]].map(([label,value])=><div key={label}><dt className="text-xs text-[#81796C]">{label}</dt><dd className="mt-1 font-medium">{value}</dd></div>)}</dl>
+                {order.notes && <p className="mt-5 whitespace-pre-wrap break-words rounded-xl bg-[#F6F4EF] p-4 text-sm">{order.notes}</p>}
+                <p className="mt-5 text-xs leading-relaxed text-[#81796C]">Preços, custos, fornecedor e cliente preservados como estavam no registro da venda. A margem exclui o frete e desconta o custo das peças e as despesas informadas; não representa lucro líquido contábil.</p><OrderStatus id={order.id} status={order.status} />
+              </section><p className="mt-5 text-xs text-[#81796C]">O painel registra a situação informada pela equipe. Cobrança, estorno financeiro e baixa de estoque não são executados nesta etapa.</p>
+            </main>
+          }
+          ''',
+
+              'src/app/admin/pedidos/actions.ts': r''''use server'
+
+          import { revalidatePath } from 'next/cache'
+          import { adminDatabase } from '@/lib/admin-auth'
+          import { saleAmount, saleUuid } from '@/lib/admin-sales'
+          import type { SaleOption } from '@/lib/admin-sales'
+          import { canAnodize } from '@/lib/anodization'
+
+          export async function searchOrderProducts(search: string): Promise<{error: string; options: SaleOption[]}> {
+            const { db } = await adminDatabase()
+            const safe = String(search).replace(/[^a-zA-Z0-9À-ÿ -]/g,' ').trim().slice(0,100)
+            if (safe.length < 2) return {error:'Digite ao menos duas letras ou números.',options:[]}
+            const result = await db.from('products').select('id,name,sku,product_type,tags,regular_price,sale_price,sale_starts_at,sale_ends_at').or(`name.ilike.%${safe}%,sku.ilike.%${safe}%`).order('name').limit(12)
+            if (result.error) return {error:'Não foi possível buscar os produtos.',options:[]}
+            const products = result.data || []
+            const ids = products.filter(p => p.product_type === 'variable').map(p => p.id)
+            const variants = ids.length ? await db.from('product_variants').select('id,product_id,name,sku,regular_price,sale_price,sale_starts_at,sale_ends_at').in('product_id',ids).eq('enabled',true).order('position').limit(200) : { data:[], error:null }
+            if (variants.error) return {error:'Não foi possível buscar as variações.',options:[]}
+            const options: SaleOption[] = []
+            for (const p of products) {
+              const rows = p.product_type === 'variable' ? (variants.data || []).filter(v => v.product_id === p.id) : [p]
+              for (const row of rows) {
+                const now = Date.now()
+                const onSale = row.sale_price !== null && (!row.sale_starts_at || Date.parse(row.sale_starts_at) <= now) && (!row.sale_ends_at || Date.parse(row.sale_ends_at) >= now)
+                const value = onSale ? row.sale_price : row.regular_price
+                options.push({ product_id:p.id,variant_id:p.product_type === 'variable' ? row.id : '',name:p.product_type === 'variable' ? `${p.name} — ${row.name}${row.sku ? ` · ${row.sku}` : ''}` : p.name,price:value === null ? null : Number(value),anodizable:canAnodize(p.tags || []) })
+              }
+            }
+            return {error:options.length ? '' : 'Nenhum produto encontrado. Refine a busca pelo código da peça.',options}
+          }
+
+          export async function saveManualOrder(input: {id: string; customer: string; status: string; discount: string; shipping: string; expenses: string; notes: string; items: {product_id: string; variant_id: string; quantity: string; unit_price: string; color: string}[]}): Promise<{error:string; id?:string}> {
+            const { db,user } = await adminDatabase()
+            try {
+              if (!input || !saleUuid(input.id) || !saleUuid(input.customer) || !['pending','paid'].includes(input.status) || typeof input.notes !== 'string' || input.notes.length > 2000 || !Array.isArray(input.items) || input.items.length < 1 || input.items.length > 50) throw new Error('Confira o cliente e os itens do pedido.')
+              const items = input.items.map(item => {
+                if (!saleUuid(item.product_id) || (item.variant_id !== '' && !saleUuid(item.variant_id)) || !/^[1-9]\d{0,3}$/.test(item.quantity) || typeof item.color !== 'string' || item.color.length > 4) throw new Error('Confira as quantidades e as variações.')
+                return {...item,unit_price:saleAmount(item.unit_price)}
+              })
+              const {data,error} = await db.rpc('serenity_admin_create_order',{p_id:input.id,p_admin:user.id,p_customer:input.customer,p_payload:{status:input.status,discount:saleAmount(input.discount),shipping:saleAmount(input.shipping),expenses:saleAmount(input.expenses),notes:input.notes,items}})
+              if (error) return {error:'Não foi possível salvar. Confira os valores, a variação e a elegibilidade para anodização. O desconto não pode ultrapassar os produtos.'}
+              revalidatePath('/admin/pedidos');revalidatePath('/admin/clientes')
+              return {error:'',id:String(data)}
+            } catch (error) { return {error:error instanceof Error ? error.message : 'Confira os dados do pedido.'} }
+          }
+
+          export async function changeOrderStatus(id: string, expected: string, status: string): Promise<{error:string}> {
+            const {db} = await adminDatabase()
+            if (!saleUuid(id) || !((expected === 'pending' && ['paid','cancelled'].includes(status)) || (expected === 'paid' && status === 'refunded'))) return {error:'Mudança de situação inválida.'}
+            const {error} = await db.rpc('serenity_admin_order_status',{p_id:id,p_expected:expected,p_status:status})
+            if (error) return {error:'O pedido pode ter sido alterado em outra tela. Atualize a página e tente novamente.'}
+            revalidatePath('/admin/pedidos');revalidatePath(`/admin/pedidos/${id}`)
+            return {error:''}
+          }
+
+          export async function saveCustomer(input: {id:string; name:string; email:string; phone:string; notes:string}): Promise<{error:string}> {
+            const {db} = await adminDatabase()
+            if (!input || typeof input.name !== 'string' || !input.name.trim() || input.name.length > 180 || typeof input.email !== 'string' || input.email.length > 254 || (input.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(input.email)) || typeof input.phone !== 'string' || (input.phone && !/^\d{10,15}$/.test(input.phone)) || typeof input.notes !== 'string' || input.notes.length > 2000 || !saleUuid(input.id)) return {error:'Confira nome, e-mail e telefone com DDD.'}
+            const {error} = await db.from('serenity_customers').upsert({id:input.id,name:input.name.trim(),email:input.email.trim(),phone:input.phone,notes:input.notes},{onConflict:'id'})
+            if (error) return {error:'Não foi possível salvar o cliente.'}
+            revalidatePath('/admin/clientes')
+            return {error:''}
+          }
+          ''',
+
+              'src/app/admin/pedidos/novo/page.tsx': r'''import Link from 'next/link'
+          import { adminDatabase } from '@/lib/admin-auth'
+          import type { Customer } from '@/lib/admin-sales'
+          import OrderForm from '../OrderForm'
+
+          export default async function NewOrderPage() {
+            const {db} = await adminDatabase()
+            const customers:Customer[] = []
+            for (let offset=0;;offset+=1000) {
+              const {data,error}=await db.from('serenity_customers').select('id,name,email,phone,notes').order('name').order('id').range(offset,offset+999)
+              if(error)throw new Error('ADMIN_CUSTOMERS_QUERY')
+              customers.push(...(data || []));if(!data || data.length<1000)break
+            }
+            return <main className="mx-auto max-w-5xl px-5 py-8"><Link href="/admin/pedidos" className="text-xs underline">← Voltar aos pedidos</Link><h1 className="mb-2 mt-5 text-3xl font-medium tracking-tight">Novo pedido manual</h1><p className="mb-7 text-sm text-[#81796C]">Registre uma venda feita pelo atendimento ou pessoalmente.</p><OrderForm customers={customers} /></main>
+          }
+          ''',
+
+              'src/app/admin/pedidos/OrderForm.tsx': r''''use client'
+
+          import { useState } from 'react'
+          import { useRouter } from 'next/navigation'
+          import Link from 'next/link'
+          import { ANODIZATION_COLORS } from '@/lib/anodization'
+          import { saleAmount, saleMoney } from '@/lib/admin-sales'
+          import type { Customer,SaleLine,SaleOption } from '@/lib/admin-sales'
+          import { saveManualOrder,searchOrderProducts } from './actions'
+
+          const field = 'mt-1 min-h-[44px] w-full rounded-xl border border-[#DCD4C8] bg-white px-3 py-2 text-base sm:text-sm'
+          const numeric = (value:string) => { try { return saleAmount(value) } catch { return 0 } }
+
+          export default function OrderForm({customers}:{customers:Customer[]}) {
+            const router = useRouter()
+            const [pending,setPending] = useState(false)
+            async function start(task:()=>Promise<void>) {setPending(true);try {await task()} finally {setPending(false)}}
+            const [requestId] = useState(() => crypto.randomUUID())
+            const [options,setOptions] = useState<SaleOption[]>([])
+            const [items,setItems] = useState<SaleLine[]>([])
+            const [query,setQuery] = useState('')
+            const [message,setMessage] = useState('')
+            const [discount,setDiscount] = useState('0')
+            const [shipping,setShipping] = useState('0')
+            const [expenses,setExpenses] = useState('0')
+            const subtotal = items.reduce((sum,item) => sum+(numeric(item.unit_price)+(item.color ? 15 : 0))*Number(item.quantity || 0),0)
+            function change(index:number,key:'quantity'|'unit_price'|'color',value:string) { setItems(rows => rows.map((row,i) => i === index ? {...row,[key]:value} : row)) }
+            return <form onSubmit={event => {
+              event.preventDefault();setMessage('')
+              const form = new FormData(event.currentTarget)
+              start(async () => {
+                try {
+                  const result = await saveManualOrder({id:requestId,customer:String(form.get('customer') || ''),status:String(form.get('status')),discount,shipping,expenses,notes:String(form.get('notes') || ''),items:items.map(({product_id,variant_id,quantity,unit_price,color})=>({product_id,variant_id,quantity,unit_price,color}))})
+                  if (result.error || !result.id) {setMessage(result.error || 'Não foi possível salvar.');return}
+                  router.push(`/admin/pedidos/${result.id}`);router.refresh()
+                } catch {setMessage('A conexão falhou. Tente salvar novamente; o mesmo pedido não será duplicado.')}
+              })
+            }}>
+              <fieldset disabled={pending} className="space-y-6 disabled:opacity-60">
+                <div className="rounded-3xl border border-[#E5DED3] bg-white p-5 sm:p-7">
+                  <h2 className="mb-4 text-lg font-medium">Cliente e situação</h2>
+                  <div className="grid gap-4 md:grid-cols-2"><label className="text-xs">Cliente cadastrado<select required name="customer" defaultValue="" className={field}><option value="">Selecione</option>{customers.map(c => <option key={c.id} value={c.id}>{c.name}{c.phone ? ` · ${c.phone}` : ''}</option>)}</select></label><label className="text-xs">Situação<select name="status" className={field}><option value="pending">Pendente de pagamento</option><option value="paid">Pago — pagamento já conferido</option></select></label></div>
+                  <Link href="/admin/clientes" className="mt-3 inline-block text-xs underline underline-offset-4">Cadastrar cliente antes de montar o pedido</Link>
+                </div>
+                <div className="rounded-3xl border border-[#E5DED3] bg-white p-5 sm:p-7">
+                  <h2 className="mb-4 text-lg font-medium">Peças do pedido</h2>
+                  <div className="flex flex-wrap items-end gap-3"><label className="min-w-0 flex-1 text-xs">Buscar por nome ou SKU<input value={query} onChange={e => setQuery(e.target.value)} className={field} maxLength={100} placeholder="Ex.: TN883" /></label><button type="button" className="min-h-[44px] rounded-full bg-[#292621] px-6 text-sm text-white" onClick={() => {setMessage('');start(async()=>{try {const result=await searchOrderProducts(query);setOptions(result.options);setMessage(result.error)} catch {setMessage('Falha na busca. Tente novamente.')}})}}>Buscar peças</button></div>
+                  {options.length > 0 && <label className="mt-4 block text-xs">Escolha o produto ou a variação<select value="" className={field} onChange={e=>{const item=options[Number(e.target.value)];if(!item)return;setItems(rows=>[...rows,{...item,quantity:'1',unit_price:item.price === null ? '' : String(item.price),color:''}]);setOptions([])}}><option value="">Adicionar uma peça ao pedido</option>{options.map((item,i)=><option key={`${item.product_id}-${item.variant_id}`} value={i}>{item.name} · {item.price === null ? 'Informar preço' : saleMoney(item.price)}</option>)}</select><span className="mt-2 block text-[#81796C]">Resultados limitados. Para localizar uma variação, use o código da peça.</span></label>}
+                  <div className="mt-5 space-y-4">{items.map((item,index)=><article key={index} className="rounded-2xl border border-[#E5DED3] bg-[#FCFBF8] p-4"><div className="flex items-start justify-between gap-4"><h3 className="text-sm font-medium">{item.name}</h3><button type="button" aria-label={`Remover ${item.name}`} onClick={()=>setItems(rows=>rows.filter((_,i)=>i!==index))} className="text-xs underline">Remover</button></div><div className="mt-3 grid gap-3 sm:grid-cols-3"><label className="text-xs">Quantidade<input required type="number" min="1" max="9999" step="1" value={item.quantity} onChange={e=>change(index,'quantity',e.target.value)} className={field} /></label><label className="text-xs">Preço unitário sem anodização<input required inputMode="decimal" value={item.unit_price} onChange={e=>change(index,'unit_price',e.target.value)} className={field} /></label>{item.anodizable && <label className="text-xs">Anodização<select value={item.color} onChange={e=>change(index,'color',e.target.value)} className={field}><option value="">Cor original</option>{ANODIZATION_COLORS.map(c=><option key={c.code} value={c.code}>{c.label} · {c.voltage} V (+ R$ 15)</option>)}</select></label>}</div><p className="mt-3 text-right text-sm">{saleMoney((numeric(item.unit_price)+(item.color ? 15 : 0))*Number(item.quantity || 0))}</p></article>)}</div>
+                  {!items.length && <p className="py-8 text-center text-sm text-[#81796C]">Busque e adicione a primeira peça.</p>}
+                </div>
+                <div className="rounded-3xl border border-[#E5DED3] bg-white p-5 sm:p-7"><h2 className="mb-4 text-lg font-medium">Valores e observações</h2><div className="grid gap-4 sm:grid-cols-3">{[['Desconto nos produtos',discount,setDiscount],['Frete cobrado',shipping,setShipping],['Despesas da venda',expenses,setExpenses]].map(([label,value,setter])=><label key={String(label)} className="text-xs">{String(label)}<input required inputMode="decimal" className={field} value={String(value)} onChange={e=>(setter as (value:string)=>void)(e.target.value)} /></label>)}</div><p className="mt-3 text-xs leading-relaxed text-[#81796C]">Despesas: taxas, embalagem, custo da anodização e outras despesas desta venda. O frete cobrado fica separado da margem dos produtos; inclua aqui apenas eventual diferença de frete paga pela loja.</p><label className="mt-4 block text-xs">Observações internas<textarea name="notes" maxLength={2000} rows={3} className={field} /></label><div className="mt-5 flex flex-wrap items-center justify-between gap-3 border-t border-[#E5DED3] pt-5"><span className="text-sm">Produtos: {saleMoney(subtotal)}</span><strong className="text-xl">Total: {saleMoney(subtotal-numeric(discount)+numeric(shipping))}</strong></div></div>
+                <p className="text-xs leading-relaxed text-[#81796C]">Registro administrativo manual. Salvar ou marcar como pago não cobra o cliente, não envia mensagens e não altera o estoque da loja.</p>
+                <button disabled={!items.length || !customers.length} className="min-h-[48px] rounded-full bg-[#292621] px-8 text-sm text-white disabled:opacity-40">{pending ? 'Salvando…' : 'Salvar pedido'}</button>
+              </fieldset>
+              {message && <p role="alert" className="mt-4 text-sm text-[#8B3E2F]">{message}</p>}
+            </form>
+          }
+          ''',
+
+              'src/app/admin/pedidos/OrderStatus.tsx': r''''use client'
+          import { useState } from 'react'
+          import { useRouter } from 'next/navigation'
+          import { changeOrderStatus } from './actions'
+          export default function OrderStatus({id,status}:{id:string;status:string}) {
+            const [pending,setPending]=useState(false),[message,setMessage]=useState('')
+            async function start(task:()=>Promise<void>) {setPending(true);try {await task()} finally {setPending(false)}}
+            const router=useRouter()
+            const options=status==='pending' ? [['paid','Confirmar pagamento'],['cancelled','Cancelar pedido']] : status==='paid' ? [['refunded','Registrar estorno integral']] : []
+            return <div className="mt-6"><div className="flex flex-wrap gap-3">{options.map(([value,label])=><button key={value} disabled={pending} className="min-h-[44px] rounded-full border border-[#CFC3B1] bg-white px-5 text-sm disabled:opacity-50" onClick={()=>{if(!window.confirm(value==='paid' ? 'Você conferiu e recebeu o pagamento integral deste pedido?' : value==='refunded' ? 'Você já devolveu integralmente o pagamento ao cliente? O painel apenas registra o estorno.' : 'Confirmar o cancelamento deste pedido pendente?'))return;start(async()=>{try {const result=await changeOrderStatus(id,status,value);setMessage(result.error);if(!result.error)router.refresh()}catch{setMessage('Falha de conexão. Atualize para conferir a situação do pedido.')}})}}>{pending ? 'Salvando…' : label}</button>)}</div>{message && <p role="alert" className="mt-3 text-sm text-red-800">{message}</p>}</div>
+          }
+          ''',
+
+              'src/app/admin/pedidos/page.tsx': r'''import Link from 'next/link'
+          import { redirect } from 'next/navigation'
+          import { adminDatabase } from '@/lib/admin-auth'
+          import { SALE_STATUS,saleMoney,saleDate } from '@/lib/admin-sales'
+          import type { Order,SalesSummary } from '@/lib/admin-sales'
+
+          export default async function OrdersPage({searchParams={}}:{searchParams?:Record<string,string|string[]|undefined>}) {
+            const {db}=await adminDatabase()
+            const requested=Number(searchParams.page),page=Number.isSafeInteger(requested)&&requested>0 ? Math.min(requested,100000) : 1
+            const status=typeof searchParams.status==='string' && Object.keys(SALE_STATUS).includes(searchParams.status) ? searchParams.status : ''
+            let query=db.from('serenity_orders').select('id,number,status,created_at,customer_snapshot,total',{count:'exact'})
+            if(status)query=query.eq('status',status)
+            const [list,summary]=await Promise.all([query.order('created_at',{ascending:false}).order('id').range((page-1)*20,page*20-1),db.rpc('serenity_admin_sales_summary')])
+            if(list.error?.code==='PGRST103')redirect('/admin/pedidos')
+            if(list.error || summary.error || !summary.data)throw new Error('ADMIN_SALES_QUERY')
+            const stats=summary.data as SalesSummary,orders=(list.data || []) as Order[],pages=Math.max(1,Math.ceil((list.count || 0)/20))
+            const peak=Math.max(1,...stats.days.map(d=>Number(d.total)))
+            const points=stats.days.map((d,i)=>`${10+i*780/Math.max(1,stats.days.length-1)},${160-Number(d.total)/peak*140}`).join(' ')
+            const href=(n:number)=>`/admin/pedidos?page=${n}${status ? `&status=${status}` : ''}`
+            return <main className="mx-auto max-w-7xl px-5 py-8 sm:px-8"><div className="mb-7 flex flex-wrap items-end justify-between gap-4"><div><p className="mb-2 text-xs text-[#947B57]">Administração</p><h1 className="text-3xl font-medium tracking-tight">Vendas e pedidos</h1><p className="mt-2 text-sm text-[#81796C]">Resumo do mês atual · horário de Brasília</p></div><Link href="/admin/pedidos/novo" className="rounded-full bg-[#292621] px-6 py-3 text-sm text-white">+ Novo pedido manual</Link></div>
+              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">{[['Faturamento recebido',saleMoney(stats.revenue)],['Pedidos pagos no mês',String(stats.paid)],['Margem de contribuição',stats.margin===null ? 'Custos pendentes' : saleMoney(stats.margin)],['Pendentes de pagamento',String(stats.pending)]].map(([label,value])=><div key={label} className="rounded-3xl border border-[#E5DED3] bg-white p-5"><p className="text-xs text-[#81796C]">{label}</p><p className="mt-3 text-2xl font-medium tracking-tight">{value}</p></div>)}</div>
+              <p className="mt-4 text-xs leading-relaxed text-[#81796C]">Faturamento inclui o frete recebido ({saleMoney(stats.shipping)}). Margem: produtos após descontos menos custos das peças e despesas, sem o frete. {stats.missing>0 ? `${stats.missing} unidade(s) vendida(s) sem custo cadastrado; a margem total ainda não pode ser calculada.` : 'Custos e despesas são os registrados nos pedidos.'} Cancelados e estornos integrais não entram nos indicadores.</p>
+              <section className="my-7 rounded-3xl border border-[#E5DED3] bg-white p-5 sm:p-7"><div className="flex flex-wrap items-center justify-between gap-3"><h2 className="text-lg font-medium">Vendas recebidas nos últimos 30 dias</h2><span className="text-xs text-[#81796C]">Maior dia: {saleMoney(peak===1 && stats.days.every(d=>Number(d.total)===0) ? 0 : peak)}</span></div><svg viewBox="0 0 800 180" role="img" aria-label="Faturamento diário dos últimos 30 dias; valores disponíveis na tabela abaixo" className="mt-5 h-44 w-full sm:h-52" preserveAspectRatio="none"><path d="M10 160H790" stroke="#E5DED3"/><polygon points={`10,160 ${points} 790,160`} fill="#F0E7DA"/><polyline points={points} fill="none" stroke="#947B57" strokeWidth="3" vectorEffect="non-scaling-stroke"/></svg><div className="flex justify-between text-xs text-[#81796C]"><span>{stats.days[0]?.day.split('-').reverse().join('/')}</span><span>{stats.days[stats.days.length-1]?.day.split('-').reverse().join('/')}</span></div><details className="mt-4 text-xs"><summary className="cursor-pointer text-[#756B5D]">Ver valores diários</summary><div className="mt-3 max-h-48 overflow-auto"><table className="w-full text-left"><thead><tr><th scope="col">Data</th><th scope="col">Recebido</th></tr></thead><tbody>{stats.days.map(d=><tr key={d.day}><th scope="row" className="py-1 font-normal">{d.day.split('-').reverse().join('/')}</th><td>{saleMoney(d.total)}</td></tr>)}</tbody></table></div></details></section>
+              <section className="overflow-hidden rounded-3xl border border-[#E5DED3] bg-white"><div className="flex flex-wrap items-center justify-between gap-4 border-b border-[#E5DED3] p-5"><h2 className="text-lg font-medium">Pedidos registrados</h2><form method="get" className="flex gap-2"><label><span className="sr-only">Filtrar situação</span><select name="status" defaultValue={status} className="min-h-[40px] rounded-full border border-[#E5DED3] px-3 text-sm"><option value="">Todas as situações</option>{Object.entries(SALE_STATUS).map(([value,label])=><option key={value} value={value}>{label}</option>)}</select></label><button className="rounded-full border border-[#E5DED3] px-4 text-xs">Filtrar</button></form></div>{orders.map(order=><Link key={order.id} href={`/admin/pedidos/${order.id}`} className="flex flex-wrap items-center justify-between gap-3 border-b border-[#EEE8DE] px-5 py-4 hover:bg-[#FCFBF8]"><div><p className="text-sm font-medium">#{order.number} · {order.customer_snapshot.name}</p><p className="mt-1 text-xs text-[#81796C]">{saleDate(order.created_at)} · {SALE_STATUS[order.status]}</p></div><span className="text-sm font-medium">{saleMoney(order.total)} ↗</span></Link>)}{!orders.length && <p className="p-10 text-center text-sm text-[#81796C]">Nenhum pedido registrado nesta situação.</p>}<nav aria-label="Paginação de pedidos" className="flex items-center justify-between gap-3 p-5 text-xs"><span>Página {page} de {pages}</span><div className="flex gap-4">{page>1 && <Link href={href(page-1)}>← Anterior</Link>}{page<pages && <Link href={href(page+1)}>Próxima →</Link>}</div></nav></section>
+              <p className="mt-5 text-xs text-[#81796C]">Esta etapa reúne registros manuais. Pedidos do site e mensagens automáticas entrarão após as integrações.</p>
+            </main>
+          }
+          ''',
+
+              'src/components/admin/AdminNavigation.tsx': r''''use client'
+
+          import Link from 'next/link'
+          import { usePathname } from 'next/navigation'
+
+          export default function AdminNavigation() {
+            const path = usePathname()
+            if (path === '/admin/login') return null
+            return <nav aria-label="Administração" className="border-b border-[#E5DED3] bg-white px-5 py-3"><div className="mx-auto flex max-w-[1440px] flex-wrap items-center gap-2 text-xs"><span className="mr-4 font-medium tracking-[0.15em]">SERENITY</span>{[['/admin/pedidos','Vendas e pedidos'],['/admin/clientes','Clientes'],['/admin/produtos','Produtos']].map(([href,label]) => <Link key={href} href={href} className={`rounded-full px-4 py-2 ${path.startsWith(href) ? 'bg-[#292621] text-white' : 'text-[#756B5D] hover:bg-[#F1EBE1]'}`}>{label}</Link>)}<Link href="/" className="ml-auto px-2 py-2 text-[#756B5D]">Ver loja ↗</Link></div></nav>
+          }
+          ''',
+
+              'src/lib/admin-sales.ts': r'''export interface Customer { id: string; name: string; email: string; phone: string; notes: string }
+          export interface SaleOption { product_id: string; variant_id: string; name: string; price: number | null; anodizable: boolean }
+          export interface SaleLine extends SaleOption { quantity: string; unit_price: string; color: string }
+          export interface OrderItem { name: string; variation: string | null; sku: string | null; quantity: number; unit_price: number; unit_cost: number | null; supplier: string | null; anodization: string | null; voltage: string | null; anodization_fee: number }
+          export interface Order { id: string; number: number; status: string; created_at: string; paid_at: string | null; customer_snapshot: { name: string; email: string; phone: string }; items: OrderItem[]; subtotal: number; discount: number; shipping: number; expenses: number; total: number; cost: number | null; missing_costs: number; notes: string }
+          export interface SalesSummary { paid: number; revenue: number; shipping: number; cost: number; expenses: number; missing: number; margin: number | null; pending: number; customers: number; days: { day: string; total: number }[] }
+          export const saleMoney = (n: number) => new Intl.NumberFormat('pt-BR',{style:'currency',currency:'BRL'}).format(n)
+          export const saleDate = (date: string) => new Intl.DateTimeFormat('pt-BR',{dateStyle:'short',timeStyle:'short',timeZone:'America/Sao_Paulo'}).format(new Date(date))
+          export const SALE_STATUS: Record<string,string> = { pending:'Pendente',paid:'Pago',cancelled:'Cancelado',refunded:'Estornado integralmente' }
+          export function saleAmount(value: unknown): number {
+            if (typeof value !== 'string' || !/^\d{1,7}([,.]\d{1,2})?$/.test(value.trim())) throw new Error('Use valores como 157,90, sem ponto de milhar.')
+            return Math.round(Number(value.trim().replace(',','.'))*100)/100
+          }
+          export const saleUuid = (value: unknown): value is string => typeof value === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value)
+          ''',
+          }
+
+          required = [
+              'src/lib/admin-auth.ts',
+              'src/lib/anodization.ts',
+              'src/app/admin/layout.tsx'
+          ]
+
+          if not all((root / name).is_file() for name in required):
+              raise SystemExit(
+                  'Instale primeiro o painel e a etapa de anodização. Nenhum arquivo foi alterado.'
+              )
+
+          layout = root / 'src/app/admin/layout.tsx'
+          source = layout.read_text(encoding='utf-8')
+
+          if '<AdminNavigation />' not in source:
+              if source.count('{children}</div>') != 1:
+                  raise SystemExit(
+                      'O layout do painel mudou. Envie o arquivo atual; nenhum arquivo foi alterado.'
+                  )
+
+              source = "import AdminNavigation from '@/components/admin/AdminNavigation'\n" + source
+              source = source.replace(
+                  '{children}</div>',
+                  '<AdminNavigation />{children}</div>',
+                  1
+              )
+
+          for name,content in files.items():
+              target = root / name
+              target.parent.mkdir(parents=True,exist_ok=True)
+              target.write_text(content,encoding='utf-8')
+
+          layout.write_text(source,encoding='utf-8')
+          print('Clientes, pedidos manuais e resumo de vendas instalados.')
+          PY
+
+      - run: npm ci --ignore-scripts
+      - run: npx tsc --noEmit --incremental false
+      - run: npx next lint --no-cache
+
+      - name: Salvar atualização
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/app/admin src/components/admin/AdminNavigation.tsx src/lib/admin-sales.ts
+          if git diff --cached --quiet; then
+            echo "Painel já atualizado."
+          else
+            git commit -m "Adicionar clientes, pedidos manuais e resumo de vendas"
+            git push origin HEAD:main
+          fi

@@ -1,0 +1,716 @@
+name: Melhorar seletores e publicacao
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  instalar:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Atualizar campos
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          root = Path.cwd()
+
+          files = {
+              'src/app/admin/produtos/[id]/ProductClassification.tsx': r''''use client'
+
+          import { useState } from 'react'
+          import type { EditableProduct } from '@/lib/admin-product-editor'
+
+          export interface ClassificationOptions {
+            materials: string[]
+            tags: string[]
+            groups: {
+              label: string
+              categories: string[]
+            }[]
+          }
+
+          const field = 'mt-2 min-h-[44px] min-w-0 w-full rounded-xl border border-[#DFD7CB] bg-white px-3 py-2 text-base outline-none focus:border-[#947B57] sm:text-sm'
+
+          export default function ProductClassification({
+            product,
+            options,
+          }: {
+            product: EditableProduct
+            options: ClassificationOptions
+          }) {
+            const [selected, setSelected] = useState<string[]>(
+              (product.categories || []) as string[]
+            )
+
+            const [material, setMaterial] = useState(
+              String(product.material || '')
+            )
+
+            const [tags, setTags] = useState<string[]>(
+              (product.tags || []) as string[]
+            )
+
+            const [newTag, setNewTag] = useState('')
+
+            const tagOptions = Array.from(
+              new Set([...options.tags, ...tags])
+            ).sort((a, b) => a.localeCompare(b, 'pt-BR'))
+
+            const materials = Array.from(
+              new Set([
+                ...options.materials,
+                ...(material ? [material] : []),
+              ])
+            ).sort((a, b) => a.localeCompare(b, 'pt-BR'))
+
+            const known = new Set(
+              options.groups.flatMap(group => group.categories)
+            )
+
+            const extra = selected.filter(value => !known.has(value))
+
+            const groups = extra.length
+              ? [
+                  ...options.groups,
+                  {
+                    label: 'Outras categorias deste produto',
+                    categories: extra,
+                  },
+                ]
+              : options.groups
+
+            function toggle(value: string) {
+              setSelected(old =>
+                old.includes(value)
+                  ? old.filter(item => item !== value)
+                  : [...old, value]
+              )
+            }
+
+            function addTag() {
+              const value = newTag.trim()
+
+              if (!value || value.length > 180 || tags.length >= 80) return
+
+              setTags(old =>
+                old.includes(value) ? old : [...old, value]
+              )
+
+              setNewTag('')
+            }
+
+            return (
+              <section className="rounded-3xl border border-[#E5DED3] bg-white p-5 sm:p-7">
+                <h2 className="mb-5 text-lg font-medium">
+                  Material, categorias e subcategorias
+                </h2>
+
+                <label className="block text-xs text-[#625B51]">
+                  Material
+                  <select
+                    name="p.material"
+                    value={material}
+                    onChange={event => setMaterial(event.target.value)}
+                    className={field}
+                  >
+                    <option value="">Selecione o material</option>
+
+                    {materials.map(value => (
+                      <option key={value} value={value}>
+                        {value}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+
+                <input
+                  type="hidden"
+                  name="p.categories"
+                  value={selected.join('\n')}
+                />
+
+                <p className="mb-4 mt-6 text-xs text-[#625B51]">
+                  Categorias e subcategorias · Marque todas as opções adequadas à peça.
+                </p>
+
+                <div className="grid gap-3 sm:grid-cols-2">
+                  {groups.map(group => (
+                    <details
+                      key={group.label}
+                      open={group.categories.some(value =>
+                        selected.includes(value)
+                      )}
+                      className="min-w-0 rounded-2xl border border-[#E5DED3] p-4"
+                    >
+                      <summary className="cursor-pointer text-sm font-medium">
+                        {group.label}
+
+                        <span className="ml-2 text-xs font-normal text-[#81796C]">
+                          {group.categories.filter(value =>
+                            selected.includes(value)
+                          ).length || ''}
+                        </span>
+                      </summary>
+
+                      <div className="mt-4 space-y-2">
+                        {group.categories.map(value => (
+                          <label
+                            key={value}
+                            className={`flex cursor-pointer items-start gap-3 rounded-xl border px-3 py-3 text-xs ${
+                              selected.includes(value)
+                                ? 'border-[#B8986A] bg-[#F8F5EF]'
+                                : 'border-[#E5DED3] bg-white'
+                            }`}
+                          >
+                            <input
+                              type="checkbox"
+                              checked={selected.includes(value)}
+                              onChange={() => toggle(value)}
+                              className="mt-0.5"
+                            />
+
+                            <span className="min-w-0 break-words">
+                              {value}
+                            </span>
+                          </label>
+                        ))}
+                      </div>
+                    </details>
+                  ))}
+                </div>
+
+                {selected.length > 0 && (
+                  <div className="mt-4 flex flex-wrap gap-2">
+                    {selected.map(value => (
+                      <button
+                        key={value}
+                        type="button"
+                        onClick={() => toggle(value)}
+                        className="max-w-full break-words rounded-full bg-[#F0EBE3] px-3 py-2 text-left text-xs"
+                        aria-label={`Remover categoria ${value}`}
+                      >
+                        {value} ×
+                      </button>
+                    ))}
+                  </div>
+                )}
+
+                <input
+                  type="hidden"
+                  name="p.tags"
+                  value={tags.join('\n')}
+                />
+
+                <details className="mt-6 rounded-2xl border border-[#E5DED3] p-4">
+                  <summary className="cursor-pointer text-sm font-medium">
+                    Tags e características ({tags.length})
+                  </summary>
+
+                  <p className="mb-4 mt-3 text-xs text-[#81796C]">
+                    Selecione as características desta peça. A tag Anodizável
+                    mostra ao cliente que existe personalização da cor.
+                  </p>
+
+                  <div className="grid max-h-72 gap-2 overflow-y-auto sm:grid-cols-2">
+                    {tagOptions.map(value => (
+                      <label
+                        key={value}
+                        className="flex cursor-pointer items-start gap-3 rounded-xl border border-[#E5DED3] px-3 py-3 text-xs"
+                      >
+                        <input
+                          type="checkbox"
+                          checked={tags.includes(value)}
+                          onChange={() => setTags(old =>
+                            old.includes(value)
+                              ? old.filter(item => item !== value)
+                              : [...old, value]
+                          )}
+                        />
+
+                        <span className="break-words">
+                          {value}
+                        </span>
+                      </label>
+                    ))}
+                  </div>
+
+                  {!tagOptions.length && (
+                    <p className="text-xs text-[#81796C]">
+                      Nenhuma tag cadastrada no catálogo.
+                    </p>
+                  )}
+
+                  <div className="mt-4 flex flex-wrap items-end gap-3">
+                    <label className="min-w-0 flex-1 text-xs">
+                      Nova característica
+
+                      <input
+                        value={newTag}
+                        onChange={event => setNewTag(event.target.value)}
+                        onKeyDown={event => {
+                          if (event.key === 'Enter') {
+                            event.preventDefault()
+                            addTag()
+                          }
+                        }}
+                        maxLength={180}
+                        placeholder="Ex.: Anodizável"
+                        className={field}
+                      />
+                    </label>
+
+                    <button
+                      type="button"
+                      onClick={addTag}
+                      className="min-h-[44px] rounded-full border border-[#DFD7CB] px-4 text-xs"
+                    >
+                      Adicionar tag
+                    </button>
+                  </div>
+                </details>
+
+                <div className="mt-5 flex flex-wrap gap-5 text-xs">
+                  <label>
+                    <input
+                      type="checkbox"
+                      name="p.featured"
+                      defaultChecked={product.featured === true}
+                    />{' '}
+                    Destaque
+                  </label>
+
+                  <label>
+                    <input
+                      type="checkbox"
+                      name="p.sold_individually"
+                      defaultChecked={product.sold_individually === true}
+                    />{' '}
+                    Limitar a uma unidade por compra
+                  </label>
+                </div>
+              </section>
+            )
+          }
+          ''',
+
+              'src/lib/admin-classification.ts': r'''import 'server-only'
+
+          import type { SupabaseClient } from '@supabase/supabase-js'
+          import { AREA_OPTIONS, getSubareaOptions } from '@/lib/catalog-area'
+          import type { ClassificationOptions } from '@/app/admin/produtos/[id]/ProductClassification'
+
+          function normalize(value: string): string {
+            return value
+              .normalize('NFD')
+              .replace(/[\u0300-\u036f]/g, '')
+              .toLowerCase()
+              .replace(/\bpiercings?\b/g, ' ')
+              .replace(/\b(para|de|da|do|na|no)\b/g, ' ')
+              .replace(/[^a-z0-9]+/g, '-')
+              .replace(/^-|-$/g, '')
+          }
+
+          export async function getAdminClassification(
+            db: SupabaseClient
+          ): Promise<ClassificationOptions> {
+            const categories = new Set<string>()
+            const materials = new Set<string>()
+            const tags = new Set<string>()
+
+            for (let offset = 0; ; offset += 1000) {
+              const result = await db
+                .from('products')
+                .select('id,material,categories,tags')
+                .order('id')
+                .range(offset, offset + 999)
+
+              if (result.error) {
+                throw new Error('ADMIN_CLASSIFICATION_READ')
+              }
+
+              const rows = result.data || []
+
+              rows.forEach(row => {
+                if (
+                  typeof row.material === 'string' &&
+                  row.material.trim()
+                ) {
+                  materials.add(row.material)
+                }
+
+                if (Array.isArray(row.categories)) {
+                  row.categories.forEach((value: unknown) => {
+                    if (typeof value === 'string' && value.trim()) {
+                      categories.add(value)
+                    }
+                  })
+                }
+
+                if (Array.isArray(row.tags)) {
+                  row.tags.forEach((value: unknown) => {
+                    if (typeof value === 'string' && value.trim()) {
+                      tags.add(value)
+                    }
+                  })
+                }
+              })
+
+              if (rows.length < 1000) break
+            }
+
+            const definitions = AREA_OPTIONS
+              .filter(area => area.value !== 'all')
+              .map(area => ({
+                label: area.label,
+                keys: [
+                  area.value,
+                  normalize(area.label),
+                  ...getSubareaOptions(area.value)
+                    .filter(option => option.value !== 'all')
+                    .flatMap(option => [
+                      option.value,
+                      normalize(option.label),
+                    ]),
+                ],
+                categories: [] as string[],
+              }))
+
+            const other: string[] = []
+
+            Array.from(categories)
+              .sort((a, b) => a.localeCompare(b, 'pt-BR'))
+              .forEach(value => {
+                const key = normalize(value)
+
+                const aliases: Record<string, string> = {
+                  concha: 'conch',
+                  lobulos: 'lobulo',
+                  industrial: 'transversal',
+                  septum: 'septo',
+                  'genital-masculino': 'genital-masculina',
+                  mamilos: 'mamilo',
+                }
+
+                const canonical = aliases[key] || key
+
+                const group = definitions.find(item =>
+                  item.keys.includes(canonical) ||
+                  item.keys.some(candidate =>
+                    canonical === `${normalize(item.label)}-${candidate}`
+                  )
+                )
+
+                if (group) group.categories.push(value)
+                else other.push(value)
+              })
+
+            return {
+              materials: Array.from(materials).sort((a, b) =>
+                a.localeCompare(b, 'pt-BR')
+              ),
+
+              tags: Array.from(tags).sort((a, b) =>
+                a.localeCompare(b, 'pt-BR')
+              ),
+
+              groups: [
+                ...definitions
+                  .filter(item => item.categories.length)
+                  .map(({ label, categories }) => ({
+                    label,
+                    categories,
+                  })),
+                ...(other.length
+                  ? [{
+                      label: 'Outras categorias',
+                      categories: other,
+                    }]
+                  : []),
+              ],
+            }
+          }
+          ''',
+
+              'src/components/product/ProductPersonalizationHint.tsx': r'''export default function ProductPersonalizationHint({
+            tags = [],
+          }: {
+            tags?: string[]
+          }) {
+            const available = tags.some(value =>
+              /^(anodizavel|anodizaveis|permite anodizacao|aceita anodizacao)$/.test(
+                value
+                  .normalize('NFD')
+                  .replace(/[\u0300-\u036f]/g, '')
+                  .toLowerCase()
+                  .trim()
+                  .replace(/\s+/g, ' ')
+              )
+            )
+
+            if (!available) return null
+
+            return (
+              <div className="rounded-2xl border border-[#DDD1BF] bg-[#F8F4ED] px-4 py-3">
+                <p className="text-xs font-medium text-[#756044]">
+                  Anodização disponível
+                </p>
+
+                <p className="mt-1 text-xs leading-relaxed text-[#81796C]">
+                  Esta peça permite personalizar a cor do titânio.
+                  Consulte as opções com nossa equipe.
+                </p>
+              </div>
+            )
+          }
+          ''',
+          }
+
+          patches = {}
+
+          component = (
+              root
+              / 'src/app/admin/produtos/[id]/UnifiedProductEditor.tsx'
+          )
+
+          if not component.is_file():
+              raise SystemExit(
+                  'O editor unificado ainda não está instalado neste código. '
+                  'Execute primeiro Unificar editor de produtos '
+                  'e confira o deploy correspondente.'
+              )
+
+          source = component.read_text(encoding='utf-8')
+          marker = '// Serenity: seletores do catálogo e publicação visível'
+
+          if marker not in source:
+              source = (
+                  marker
+                  + "\nimport ProductClassification from './ProductClassification'"
+                  + "\nimport type { ClassificationOptions } from './ProductClassification'\n"
+                  + source
+              )
+
+              source = source.replace("'use client'", '', 1)
+              source = "'use client'\n\n" + source
+
+              source, count = re.subn(
+                  r'(function UnifiedProductEditor\(\{ bundle, storageUrl, isNew = false)( \})',
+                  r'\1, options\2',
+                  source,
+                  count=1,
+              )
+
+              if count != 1:
+                  raise SystemExit(
+                      'A assinatura do editor mudou. Nenhum arquivo foi alterado.'
+                  )
+
+              source, count = re.subn(
+                  r'(isNew\?: boolean)(\s*[;}])',
+                  r'\1; options: ClassificationOptions\2',
+                  source,
+                  count=1,
+              )
+
+              if count != 1:
+                  raise SystemExit(
+                      'Não encontrei os tipos do editor. Nenhum arquivo foi alterado.'
+                  )
+
+              source, count = re.subn(
+                  r'<Field\s+name="p.material"[\s\S]*?/>',
+                  '',
+                  source,
+                  count=1,
+              )
+
+              if count != 1:
+                  raise SystemExit(
+                      'O campo material mudou. Nenhum arquivo foi alterado.'
+                  )
+
+              source, count = re.subn(
+                  r'<section className=\{card\}>\s*<h2\b[^>]*>\s*Categorias e organização\s*</h2>[\s\S]*?</section>',
+                  '<ProductClassification product={product} options={options} />',
+                  source,
+                  count=1,
+              )
+
+              if count != 1:
+                  raise SystemExit(
+                      'A seção de categorias mudou. Nenhum arquivo foi alterado.'
+                  )
+
+              source, count = re.subn(
+                  r'<label\b[^>]*>\s*Publicação\s*<select\b[^>]*name="p.status"[\s\S]*?</select>\s*</label>',
+                  '',
+                  source,
+                  count=1,
+              )
+
+              if count == 0 and 'name="p.status"' in source:
+                  raise SystemExit(
+                      'O campo de publicação tem outro formato. '
+                      'Envie o editor atual para adaptar.'
+                  )
+
+              status = (
+                  '<label className="text-xs text-[#625B51]">'
+                  'Publicação'
+                  '<select name="p.status" '
+                  'defaultValue={String(product.status || "draft")} '
+                  'disabled={saving} '
+                  'className="ml-2 min-h-[44px] rounded-xl border '
+                  'border-[#B8986A] bg-white px-3 text-sm">'
+                  '<option value="draft">Rascunho</option>'
+                  '<option value="published">Publicado</option>'
+                  '</select></label>'
+              )
+
+              source, count = re.subn(
+                  r'(?=<button\s+type="submit")',
+                  lambda _: status,
+                  source,
+                  count=1,
+              )
+
+              if count != 1:
+                  raise SystemExit(
+                      'O botão de salvar mudou. Nenhum arquivo foi alterado.'
+                  )
+
+          patches[component] = source
+
+          product_page = (
+              root
+              / 'src/app/produto/[slug]/ProductPageClient.tsx'
+          )
+
+          if not product_page.is_file():
+              raise SystemExit(
+                  'Não encontrei a página pública do produto. '
+                  'Nenhum arquivo foi alterado.'
+              )
+
+          source = product_page.read_text(encoding='utf-8')
+
+          if 'ProductPersonalizationHint' not in source:
+              if len(re.findall(r'</h1>', source)) != 1:
+                  raise SystemExit(
+                      'O título da página pública mudou. '
+                      'Nenhum arquivo foi alterado.'
+                  )
+
+              source = source.replace(
+                  '</h1>',
+                  '</h1><ProductPersonalizationHint tags={product.tags} />',
+                  1,
+              )
+
+              source = source.replace(
+                  "'use client'",
+                  "'use client'\nimport ProductPersonalizationHint from '@/components/product/ProductPersonalizationHint'",
+                  1,
+              )
+
+          patches[product_page] = source
+
+          for name in [
+              'src/app/admin/produtos/[id]/page.tsx',
+              'src/app/admin/produtos/novo/page.tsx',
+          ]:
+              target = root / name
+              source = target.read_text(encoding='utf-8')
+
+              if 'getAdminClassification' not in source:
+                  source = (
+                      "import { getAdminClassification } from '@/lib/admin-classification'\n"
+                      + source
+                  )
+
+                  if '/novo/' in name:
+                      source = source.replace(
+                          "import { requireAdmin } from '@/lib/admin-auth'",
+                          "import { adminDatabase } from '@/lib/admin-auth'",
+                      )
+
+                      source = source.replace(
+                          'await requireAdmin()',
+                          'const { db } = await adminDatabase()',
+                          1,
+                      )
+
+                  if 'const { db } = await adminDatabase()' not in source:
+                      raise SystemExit(
+                          'A autenticação da tela mudou. Nenhum arquivo foi alterado.'
+                      )
+
+                  source = source.replace(
+                      'const { db } = await adminDatabase()',
+                      'const { db } = await adminDatabase()\n'
+                      '  const options = await getAdminClassification(db)',
+                      1,
+                  )
+
+                  source, count = re.subn(
+                      r'<UnifiedProductEditor\b',
+                      '<UnifiedProductEditor options={options}',
+                      source,
+                      count=1,
+                  )
+
+                  if count != 1:
+                      raise SystemExit(
+                          'A tela de edição mudou. Nenhum arquivo foi alterado.'
+                      )
+
+              patches[target] = source
+
+          for name, content in files.items():
+              target = root / name
+              target.parent.mkdir(parents=True, exist_ok=True)
+              target.write_text(content, encoding='utf-8')
+
+          for target, content in patches.items():
+              target.write_text(content, encoding='utf-8')
+
+          print(
+              'Publicação ao lado de Salvar; '
+              'material, categorias e tags selecionáveis.'
+          )
+          PY
+
+      - run: npm ci --ignore-scripts
+
+      - run: npx tsc --noEmit --incremental false
+
+      - run: npx next lint --no-cache
+
+      - name: Salvar atualização
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git add src/app/admin/produtos src/lib/admin-classification.ts src/components/product/ProductPersonalizationHint.tsx 'src/app/produto/[slug]/ProductPageClient.tsx'
+
+          if git diff --cached --quiet; then
+            echo "Seletores já instalados."
+          else
+            git commit -m "Adicionar seletores, publicação visível e aviso de anodização"
+            git push origin HEAD:main
+          fi

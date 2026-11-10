@@ -1,0 +1,16 @@
+create table public.serenity_orders(account_user_id uuid ,checkout_fingerprint text ,cost numeric ,created_at timestamp with time zone NOT NULL DEFAULT now(),created_by uuid ,customer_id uuid NOT NULL,customer_snapshot jsonb NOT NULL,delivery_address jsonb ,discount numeric NOT NULL,expenses numeric NOT NULL,id uuid NOT NULL,items jsonb NOT NULL,missing_costs integer NOT NULL,notes text NOT NULL DEFAULT ''::text,number bigint NOT NULL,paid_at timestamp with time zone ,shipping numeric NOT NULL,shipping_details jsonb ,shipping_pending boolean NOT NULL DEFAULT false,source text NOT NULL DEFAULT 'manual'::text,status text NOT NULL DEFAULT 'pending'::text,stock_reserved_until timestamp with time zone ,stock_state text NOT NULL DEFAULT 'none'::text,stock_untracked integer NOT NULL DEFAULT 0,subtotal numeric NOT NULL,total numeric NOT NULL,updated_at timestamp with time zone NOT NULL DEFAULT now());
+create table public.serenity_label_drafts(fields jsonb NOT NULL,order_id uuid NOT NULL,order_version timestamp with time zone NOT NULL,sender_version bigint NOT NULL,updated_at timestamp with time zone NOT NULL DEFAULT now(),updated_by uuid NOT NULL,version bigint NOT NULL DEFAULT 1);
+create table public.serenity_label_jobs(actor uuid NOT NULL,context jsonb NOT NULL,draft_version bigint NOT NULL,operation uuid NOT NULL,order_id uuid NOT NULL,order_version timestamp with time zone NOT NULL,quote_expires timestamp with time zone NOT NULL,quotes jsonb NOT NULL,remote_id uuid ,remote_price numeric ,selected jsonb ,sender_version bigint NOT NULL,settings_version bigint NOT NULL,state text NOT NULL,updated_at timestamp with time zone NOT NULL DEFAULT now());
+create table public.serenity_label_purchases(actor uuid NOT NULL,carrier_status text NOT NULL DEFAULT ''::text,generated_observed_at timestamp with time zone ,note text NOT NULL DEFAULT ''::text,operation uuid NOT NULL,order_id uuid NOT NULL,order_version timestamp with time zone ,paid_cents bigint ,paid_observed_at timestamp with time zone ,phase text NOT NULL DEFAULT 'empty'::text,remote_id uuid NOT NULL,review_cents bigint ,review_expires timestamp with time zone ,review_id uuid ,updated_at timestamp with time zone NOT NULL DEFAULT now());
+alter table serenity_orders add primary key(id);
+alter table serenity_label_drafts add primary key(order_id);
+alter table serenity_label_jobs add primary key(order_id);
+alter table serenity_label_jobs add unique(operation);
+alter table serenity_label_jobs add unique(remote_id);
+alter table serenity_label_purchases add primary key(order_id);
+create table serenity_label_sender(singleton boolean primary key,fields jsonb,version bigint);
+create table serenity_shipping_settings(singleton boolean primary key,origin text,version bigint);
+insert into serenity_label_sender values(true,'{}',1);
+insert into serenity_shipping_settings values(true,'01000000',1);
+create table serenity_label_events(id bigint generated always as identity,order_id uuid,operation uuid,state text,remote_id uuid,actor uuid);
+create table serenity_label_purchase_events(id bigint generated always as identity,order_id uuid,phase text,actor uuid);

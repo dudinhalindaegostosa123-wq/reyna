@@ -1,0 +1,360 @@
+name: Medir imagens otimizadas
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: medir-imagens-serenity
+  cancel-in-progress: false
+
+jobs:
+  medir:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Instalar ferramenta de imagens
+        run: python3 -m pip install Pillow
+
+      - name: Baixar, otimizar e medir
+        shell: bash
+        run: |
+          python3 -u - <<'PY'
+          import csv
+          import hashlib
+          import html
+          import io
+          import json
+          import os
+          import re
+          import time
+          import urllib.request
+          import warnings
+          from concurrent.futures import ThreadPoolExecutor, as_completed
+          from html.parser import HTMLParser
+          from pathlib import Path
+          from urllib.parse import urljoin, urlsplit, urlunsplit, quote
+          from PIL import Image, ImageOps
+
+          csv.field_size_limit(20_000_000)
+          Image.MAX_IMAGE_PIXELS = 40_000_000
+          warnings.simplefilter("error", Image.DecompressionBombWarning)
+
+          output = Path("relatorio-imagens")
+          output.mkdir(exist_ok=True)
+
+          urls = set()
+
+          def add_url(value):
+              value = html.unescape(
+                  (value or "").strip().replace("\\,", ",")
+              )
+
+              if not value or value.startswith(("data:", "blob:")):
+                  return
+
+              absolute = urljoin(
+                  "https://serenitypiercings.com.br/",
+                  value,
+              )
+              parts = urlsplit(absolute)
+
+              if parts.scheme not in ("http", "https"):
+                  return
+
+              path = quote(
+                  parts.path,
+                  safe="/%:@!$&'()*+,;=-._~",
+              )
+              urls.add(urlunsplit((
+                  parts.scheme,
+                  parts.netloc,
+                  path,
+                  parts.query,
+                  "",
+              )))
+
+          class DescriptionImages(HTMLParser):
+              def handle_starttag(self, tag, attrs):
+                  if tag.lower() != "img":
+                      return
+                  attributes = dict(attrs)
+                  for field in ("src", "data-src", "data-lazy-src"):
+                      add_url(attributes.get(field))
+
+          with open(
+              "produtos.csv",
+              encoding="utf-8-sig",
+              newline="",
+          ) as file:
+              rows = list(csv.DictReader(file))
+
+          for row in rows:
+              gallery = (row.get("Imagens") or "").strip()
+
+              if gallery:
+                  for value in re.split(
+                      r"(?<!\\),\s*(?=https?://)",
+                      gallery,
+                  ):
+                      add_url(value)
+
+              for field in ("Descrição", "Descrição curta"):
+                  parser = DescriptionImages()
+                  parser.feed(row.get(field) or "")
+                  parser.close()
+
+              placeholder = (
+                  row.get(
+                      "Metadado: _jet_woo_product_video_placeholder"
+                  ) or ""
+              ).strip()
+
+              if placeholder.startswith(("https://", "http://")):
+                  add_url(placeholder)
+
+          if not urls:
+              raise SystemExit("Nenhuma URL de imagem encontrada.")
+
+          print("URLs de imagens encontradas:", len(urls), flush=True)
+
+          def download(url):
+              last_error = None
+
+              for attempt in range(3):
+                  try:
+                      request = urllib.request.Request(
+                          url,
+                          headers={
+                              "User-Agent": "SerenityMigration/1.0",
+                              "Accept": "image/*",
+                          },
+                      )
+
+                      with urllib.request.urlopen(
+                          request,
+                          timeout=40,
+                      ) as response:
+                          content = response.read(25_000_001)
+
+                      if not content:
+                          raise ValueError("Arquivo vazio.")
+
+                      if len(content) > 25_000_000:
+                          raise ValueError("Imagem maior que 25 MB.")
+
+                      return content
+
+                  except Exception as error:
+                      last_error = error
+                      if attempt < 2:
+                          time.sleep(2 ** attempt)
+
+              raise RuntimeError(str(last_error))
+
+          def webp_size(image, maximum, quality, profile):
+              resized = image.copy()
+              resized.thumbnail(
+                  (maximum, maximum),
+                  Image.Resampling.LANCZOS,
+              )
+
+              buffer = io.BytesIO()
+              options = {
+                  "format": "WEBP",
+                  "quality": quality,
+                  "method": 4,
+              }
+              if profile:
+                  options["icc_profile"] = profile
+
+              resized.save(buffer, **options)
+              size = buffer.tell()
+              resized.close()
+              return size
+
+          def measure(url):
+              try:
+                  content = download(url)
+                  digest = hashlib.sha256(content).hexdigest()
+
+                  with Image.open(io.BytesIO(content)) as original:
+                      if getattr(original, "is_animated", False):
+                          return {
+                              "url": url,
+                              "ok": False,
+                              "error": (
+                                  "Imagem animada: precisa de tratamento "
+                                  "separado para preservar a animação."
+                              ),
+                          }
+
+                      profile = original.info.get("icc_profile")
+                      image = ImageOps.exif_transpose(original)
+
+                      transparent = (
+                          "A" in image.getbands()
+                          or "transparency" in image.info
+                      )
+                      converted = image.convert(
+                          "RGBA" if transparent else "RGB"
+                      )
+
+                      large = webp_size(
+                          converted, 1600, 86, profile
+                      )
+                      thumbnail = webp_size(
+                          converted, 480, 82, profile
+                      )
+
+                      converted.close()
+                      image.close()
+
+                  return {
+                      "url": url,
+                      "ok": True,
+                      "hash": digest,
+                      "original_bytes": len(content),
+                      "gallery_bytes": large,
+                      "thumbnail_bytes": thumbnail,
+                  }
+
+              except Exception as error:
+                  return {
+                      "url": url,
+                      "ok": False,
+                      "error": str(error)[:300],
+                  }
+
+          results = []
+
+          with ThreadPoolExecutor(max_workers=3) as executor:
+              tasks = [
+                  executor.submit(measure, url)
+                  for url in sorted(urls)
+              ]
+
+              for task in as_completed(tasks):
+                  result = task.result()
+                  results.append(result)
+
+                  if not result["ok"]:
+                      print(
+                          "Falha:",
+                          result["url"],
+                          result["error"],
+                          flush=True,
+                      )
+
+                  if len(results) % 25 == 0 or len(results) == len(urls):
+                      print(
+                          f"Progresso: {len(results)}/{len(urls)}",
+                          flush=True,
+                      )
+
+          successful = [item for item in results if item["ok"]]
+          failures = [item for item in results if not item["ok"]]
+
+          unique = {}
+          for item in successful:
+              unique.setdefault(item["hash"], item)
+
+          original_total = sum(
+              item["original_bytes"] for item in unique.values()
+          )
+          gallery_total = sum(
+              item["gallery_bytes"] for item in unique.values()
+          )
+          thumbnail_total = sum(
+              item["thumbnail_bytes"] for item in unique.values()
+          )
+          optimized_total = gallery_total + thumbnail_total
+
+          def mb(value):
+              return f"{value / 1_000_000:,.1f} MB"
+
+          if failures:
+              conclusion = (
+                  "Medição incompleta: precisamos resolver as falhas "
+                  "antes de concluir se tudo cabe."
+              )
+          elif optimized_total <= 900_000_000:
+              conclusion = (
+                  "As versões medidas ficam abaixo de 900 MB. "
+                  "Há margem dentro de 1 GB, se o espaço estiver livre."
+              )
+          else:
+              conclusion = (
+                  "O total passa da margem de 900 MB. "
+                  "Precisamos ajustar a estratégia antes do envio."
+              )
+
+          report = {
+              "urls_found": len(urls),
+              "urls_measured": len(successful),
+              "unique_images": len(unique),
+              "failures": len(failures),
+              "original_bytes": original_total,
+              "gallery_bytes": gallery_total,
+              "thumbnail_bytes": thumbnail_total,
+              "optimized_bytes": optimized_total,
+              "conclusion": conclusion,
+              "images": sorted(results, key=lambda item: item["url"]),
+          }
+
+          (output / "medicao.json").write_text(
+              json.dumps(report, ensure_ascii=False, indent=2),
+              encoding="utf-8",
+          )
+
+          summary = "\n".join([
+              "# Medição das imagens",
+              "",
+              f"- URLs encontradas: **{len(urls)}**",
+              f"- URLs medidas: **{len(successful)}**",
+              f"- Imagens únicas por conteúdo: **{len(unique)}**",
+              f"- Falhas: **{len(failures)}**",
+              "",
+              f"- Originais únicos: **{mb(original_total)}**",
+              f"- Galerias em WebP: **{mb(gallery_total)}**",
+              f"- Miniaturas em WebP: **{mb(thumbnail_total)}**",
+              f"- Total otimizado: **{mb(optimized_total)}**",
+              "",
+              conclusion,
+              "",
+              "Inclui URLs das galerias, imagens das descrições e "
+              "capas de vídeo informadas como URL.",
+              "Vídeos e imagens adicionais carregados apenas por plugins "
+              "não estão incluídos nesta medição.",
+              "Nenhuma foto foi enviada ao Supabase.",
+          ])
+
+          with open(
+              os.environ["GITHUB_STEP_SUMMARY"],
+              "w",
+              encoding="utf-8",
+          ) as file:
+              file.write(summary)
+
+          print(summary, flush=True)
+
+          if failures:
+              raise SystemExit(
+                  "Medição terminou com falhas. Consulte o resumo."
+              )
+          PY
+
+      - name: Guardar relatorio da medicao
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: medicao-imagens
+          path: relatorio-imagens/medicao.json
+          if-no-files-found: ignore
+          retention-days: 7

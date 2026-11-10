@@ -1,0 +1,365 @@
+name: Instalar controle de estoque
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: instalar-controle-estoque
+  cancel-in-progress: false
+
+jobs:
+  instalar:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Instalar reservas e histórico
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          root=Path.cwd()
+          files={
+              'src/app/admin/pedidos/stock-actions.ts': r''''use server'
+          import { revalidatePath,revalidateTag } from 'next/cache'
+          import { adminDatabase } from '@/lib/admin-auth'
+          import { saleUuid } from '@/lib/admin-sales'
+
+          export async function manageOrderStock(id:string,version:string,command:string):Promise<{error:string}> {
+            const {db,user}=await adminDatabase()
+
+            if(!saleUuid(id)||typeof version!=='string'||version.length>50||!Number.isFinite(Date.parse(version))||!['reserve','release','return'].includes(command))return {error:'Confira o pedido e atualize a página.'}
+
+            const {error}=await db.rpc('serenity_admin_stock_action',{
+              p_order:id,
+              p_expected:version,
+              p_command:command,
+              p_actor:user.id
+            })
+
+            if(error){
+              if(/STOCK_RESERVED|STOCK_UNAVAILABLE/.test(error.message))return {error:'Não há saldo livre suficiente. Confira as quantidades e as reservas de outros pedidos.'}
+              if(error.message.includes('STOCK_CONTROL_CHANGED'))return {error:'O controle de quantidade desta peça mudou. Confira o saldo no cadastro antes de devolver ao estoque.'}
+              if(error.message.includes('STALE_ORDER'))return {error:'Este pedido mudou em outra tela. Atualize a página para conferir.'}
+              return {error:'Não foi possível concluir. Confira a situação do pedido e atualize a página.'}
+            }
+
+            revalidateTag('catalog')
+            revalidatePath('/admin/pedidos')
+            revalidatePath(`/admin/pedidos/${id}`)
+
+            return {error:''}
+          }
+          ''',
+
+              'src/components/admin/OrderStock.tsx': r''''use client'
+          import { useState } from 'react'
+          import { useRouter } from 'next/navigation'
+          import { saleDate } from '@/lib/admin-sales'
+          import { manageOrderStock } from '@/app/admin/pedidos/stock-actions'
+
+          interface Movement {
+            entity:string
+            id:string
+            name?:string
+            quantity:number
+            before:number
+            after:number
+          }
+
+          interface Event {
+            id:string
+            kind:string
+            created_at:string
+            changes:Movement[]|{until?:string;untracked?:number}
+          }
+
+          interface Props {
+            id:string
+            status:string
+            state:string
+            expires:string|null
+            untracked:number
+            version:string
+            events:Event[]
+          }
+
+          const labels:Record<string,string>={
+            legacy:'Pedido anterior ao controle automático',
+            none:'Sem movimentação',
+            reserved:'Reserva temporária',
+            released:'Reserva liberada',
+            debited:'Baixa de estoque registrada',
+            returned:'Devolvido ao estoque'
+          }
+
+          const eventLabels:Record<string,string>={
+            reserved:'Reserva criada',
+            released:'Reserva liberada',
+            debited:'Baixa registrada',
+            returned:'Peças devolvidas ao estoque'
+          }
+
+          export default function OrderStock({id,status,state,expires,untracked,version,events}:Props){
+            const [busy,setBusy]=useState(false),[message,setMessage]=useState('')
+            const router=useRouter()
+            const active=state==='reserved' && Boolean(expires) && Date.parse(expires!)>Date.now()
+            const commands:string[][]=[]
+
+            if(status==='pending'){
+              if(active)commands.push(['release','Liberar reserva'])
+              else if(!['debited','returned'].includes(state))commands.push(['reserve','Reservar por 30 minutos'])
+            }
+
+            if(status==='refunded' && state==='debited')commands.push(['return','Devolver peças ao estoque'])
+
+            return <section className="mb-5 rounded-3xl border border-[#DED4C5] bg-white p-5 sm:p-7"><div className="flex flex-wrap items-center justify-between gap-3"><h2 className="text-lg font-medium">Estoque deste pedido</h2><span className="rounded-full bg-[#F1EBE1] px-3 py-2 text-xs">{state==='reserved' && !active ? 'Reserva expirada' : labels[state] || state}</span></div>
+
+              {state==='reserved' && expires && <p className="mt-3 text-xs leading-relaxed text-[#756B5D]">{active ? 'Reservado até ' : 'A reserva terminou em '}{saleDate(expires)}.{!active && ' O saldo já pode ser usado por outros pedidos; é necessário conferir novamente antes de confirmar o pagamento.'}</p>}
+
+              {state==='legacy' && <p className="mt-3 text-xs leading-relaxed text-[#756B5D]">Este pedido foi criado antes desta etapa. Não alteramos seu estoque retroativamente.</p>}
+
+              {untracked>0 && <p className="mt-3 rounded-xl bg-[#FBF2E2] p-3 text-xs leading-relaxed text-[#806131]">{untracked} unidade(s) sem quantidade cadastrada no produto ou na variação. A venda fica registrada, mas não existe saldo numérico para baixar nessas peças.</p>}
+
+              {status==='refunded' && state==='debited' && <p className="mt-3 text-xs leading-relaxed text-[#756B5D]">O estorno financeiro não repõe o estoque. Confirme a devolução somente quando as peças estiverem disponíveis para venda novamente.</p>}
+
+              <div className="mt-5 flex flex-wrap gap-3">{commands.map(([command,label])=><button key={command} disabled={busy} className="min-h-[44px] rounded-full border border-[#CFC3B1] px-5 text-sm disabled:opacity-50" onClick={async()=>{
+                const question=command==='return'
+                  ? 'As peças foram recebidas ou ficaram na loja e estão aptas para venda? A confirmação repõe somente as quantidades efetivamente baixadas.'
+                  : command==='release'
+                    ? 'Liberar estas peças para outros pedidos? O pedido continuará pendente.'
+                    : 'Reservar as peças deste pedido por 30 minutos, se houver saldo livre?'
+
+                if(!window.confirm(question))return
+                setBusy(true)
+                setMessage('')
+
+                try {
+                  const result=await manageOrderStock(id,version,command)
+                  setMessage(result.error)
+                  if(!result.error)router.refresh()
+                }catch{
+                  setMessage('Falha de conexão. Atualize o pedido para conferir o resultado antes de tentar novamente.')
+                }finally{
+                  setBusy(false)
+                }
+              }}>{busy ? 'Salvando…' : label}</button>)}</div>
+
+              {message && <p role="alert" className="mt-4 text-sm text-[#8B3E2F]">{message}</p>}
+
+              <details className="mt-5 border-t border-[#E5DED3] pt-4"><summary className="cursor-pointer text-xs text-[#756B5D]">Histórico de estoque · últimos 100 movimentos</summary><ol className="mt-4 space-y-4">{events.map(event=><li key={event.id} className="border-l-2 border-[#D6C6AF] pl-4"><p className="text-xs font-medium">{eventLabels[event.kind] || event.kind}</p><p className="mt-1 text-[11px] text-[#81796C]">{saleDate(event.created_at)}</p>{Array.isArray(event.changes) ? event.changes.map((change,index)=><p key={index} className="mt-2 break-words text-xs text-[#756B5D]">{change.entity==='variant' ? 'Variação' : 'Produto'}: {change.name || change.id} · saldo {change.before} → {change.after}</p>) : event.changes.until && <p className="mt-2 text-xs text-[#756B5D]">Prazo: {saleDate(event.changes.until)}</p>}</li>)}</ol>{!events.length && <p className="mt-3 text-xs text-[#81796C]">Nenhuma movimentação automática registrada.</p>}</details>
+            </section>
+          }
+          ''',
+          }
+
+          marker='// Serenity: estoque e reservas v1'
+          patches={}
+
+          def read(name):
+              path=root/name
+              if not path.is_file():
+                  raise SystemExit(
+                      'Não encontrei '+name+'. Nenhum arquivo foi alterado.'
+                  )
+              return path.read_text(encoding='utf-8')
+
+          def change(source,old,new):
+              if source.count(old)!=1:
+                  raise SystemExit(
+                      'O arquivo mudou. Nenhum arquivo foi alterado. Trecho: '+old[:100]
+                  )
+              return source.replace(old,new,1)
+
+          name='src/app/admin/pedidos/[id]/page.tsx'
+          source=read(name)
+
+          if marker not in source:
+              source="import OrderStock from '@/components/admin/OrderStock'\n"+source
+
+              source=change(
+                  source,
+                  'const order=data as Order',
+                  "const order=data as Order & {stock_state:string;stock_reserved_until:string|null;stock_untracked:number;updated_at:string}\n  const {data:stockEvents,error:stockError}=await db.from('serenity_stock_events').select('id,kind,changes,created_at').eq('order_id',order.id).order('created_at',{ascending:false}).order('id',{ascending:false}).limit(100)\n  if(stockError)throw new Error('ADMIN_STOCK_QUERY')"
+              )
+
+              source=change(
+                  source,
+                  '<OrderOrigin source={order.source} shippingPending={order.shipping_pending} address={order.delivery_address} />',
+                  '<OrderOrigin source={order.source} shippingPending={order.shipping_pending} address={order.delivery_address} /><OrderStock id={order.id} status={order.status} state={order.stock_state} expires={order.stock_reserved_until} untracked={order.stock_untracked} version={order.updated_at} events={stockEvents || []} />'
+              )
+
+              source=change(
+                  source,
+                  'Cobrança, estorno financeiro e baixa de estoque não são executados nesta etapa.',
+                  'Cobrança e estorno financeiro não são executados pelo painel. As movimentações de estoque aparecem no histórico.'
+              )
+
+              patches[name]=source+'\n'+marker+'\n'
+
+          name='src/app/admin/pedidos/actions.ts'
+          source=read(name)
+
+          if marker not in source:
+              source=change(
+                  source,
+                  "import { revalidatePath } from 'next/cache'",
+                  "import { revalidatePath,revalidateTag } from 'next/cache'"
+              )
+
+              if "revalidatePath('/admin/pedidos')" not in source:
+                  raise SystemExit(
+                      'O arquivo de ações mudou. Nenhum arquivo foi alterado.'
+                  )
+
+              source=source.replace(
+                  "revalidatePath('/admin/pedidos')",
+                  "revalidateTag('catalog');revalidatePath('/admin/pedidos')"
+              )
+
+              source=change(
+                  source,
+                  "if (error) return {error:'Não foi possível salvar. Confira os valores, a variação e a elegibilidade para anodização. O desconto não pode ultrapassar os produtos.'}",
+                  "if (error) return {error:/STOCK_RESERVED|STOCK_UNAVAILABLE/.test(error.message) ? 'Saldo insuficiente ou reservado por outro pedido. Confira o estoque das peças.' : 'Não foi possível salvar. Confira os valores, a variação e a elegibilidade para anodização. O desconto não pode ultrapassar os produtos.'}"
+              )
+
+              source=change(
+                  source,
+                  "if (error) return {error:'O pedido pode ter sido alterado em outra tela. Atualize a página e tente novamente.'}",
+                  "if (error) return {error:/STOCK_RESERVED|STOCK_UNAVAILABLE/.test(error.message) ? 'Saldo insuficiente ou reservado por outro pedido. Confira o estoque antes de confirmar o pagamento.' : 'O pedido pode ter sido alterado em outra tela. Atualize a página e tente novamente.'}"
+              )
+
+              patches[name]=source+'\n'+marker+'\n'
+
+          name='src/app/admin/pedidos/OrderForm.tsx'
+          source=read(name)
+
+          if marker not in source:
+              source=change(
+                  source,
+                  'Registro administrativo manual. Salvar ou marcar como pago não cobra o cliente, não envia mensagens e não altera o estoque da loja.',
+                  'Pedido pendente reserva as peças por 30 minutos. Confirmar pagamento dá baixa no saldo cadastrado. O painel não realiza cobrança nem envia mensagens nesta etapa.'
+              )
+              patches[name]=source+'\n'+marker+'\n'
+
+          name='src/components/admin/OrderOrigin.tsx'
+          source=read(name)
+
+          if marker not in source:
+              source=change(
+                  source,
+                  'Estoque ainda não reservado.',
+                  'Consulte abaixo a reserva de estoque e seu prazo.'
+              )
+              patches[name]=source+'\n'+marker+'\n'
+
+          name='src/lib/checkout-server.ts'
+          source=read(name)
+
+          if marker not in source:
+              source=change(
+                  source,
+                  '/STOCK_CHANGED|PRODUCT_UNAVAILABLE',
+                  '/STOCK_RESERVED|STOCK_UNAVAILABLE|STOCK_CHANGED|PRODUCT_UNAVAILABLE'
+              )
+              patches[name]=source+'\n'+marker+'\n'
+
+          name='src/app/checkout/actions.ts'
+          source=read(name)
+
+          if marker not in source:
+              source=change(
+                  source,
+                  'reviewCheckout(input:CheckoutLine[])',
+                  'reviewCheckout(input:CheckoutLine[],requestId?:string)'
+              )
+
+              source=change(
+                  source,
+                  "db.rpc('serenity_checkout_quote',{p_items:items})",
+                  "db.rpc('serenity_stock_review',{p_items:items,p_request:requestId || null})"
+              )
+
+              source=source.replace(
+                  '{number:number;total:number}',
+                  '{number:number;total:number;reservedUntil?:string|null}'
+              )
+
+              source=change(
+                  source,
+                  "return {error:'',receipt:data as {number:number;total:number;reservedUntil?:string|null}}",
+                  "const {data:stock,error:stockError}=await db.from('serenity_orders').select('stock_reserved_until').eq('id',input.id).single()\n    if(stockError)throw stockError\n    return {error:'',receipt:{...(data as {number:number;total:number}),reservedUntil:stock.stock_reserved_until as string|null}}"
+              )
+
+              patches[name]=source+'\n'+marker+'\n'
+
+          name='src/app/checkout/CheckoutClient.tsx'
+          source=read(name)
+
+          if marker not in source:
+              source=source.replace(
+                  '{number:number;total:number}',
+                  '{number:number;total:number;reservedUntil?:string|null}'
+              )
+
+              source=change(
+                  source,
+                  'reviewCheckout(lines)',
+                  'reviewCheckout(lines,requestId)'
+              )
+
+              source=change(
+                  source,
+                  'Nenhum valor foi cobrado e as peças ainda não estão reservadas.',
+                  'Nenhum valor foi cobrado. A reserva é temporária e depende do prazo abaixo.'
+              )
+
+              source=change(
+                  source,
+                  '</p></div><p className="mb-6 text-xs text-[#81796C]">',
+                  '</p>{receipt.reservedUntil && <p className="mt-4 text-xs font-medium">Reserva válida até {new Intl.DateTimeFormat("pt-BR",{dateStyle:"short",timeStyle:"short",timeZone:"America/Sao_Paulo"}).format(new Date(receipt.reservedUntil))}. Após o prazo, a disponibilidade será conferida novamente.</p>}</div><p className="mb-6 text-xs text-[#81796C]">'
+              )
+
+              source=change(
+                  source,
+                  'Este envio não realiza pagamento nem reserva estoque.',
+                  'Este envio não realiza pagamento. A reserva temporária dura 30 minutos e pode expirar enquanto o pedido estiver pendente.'
+              )
+
+              patches[name]=source+'\n'+marker+'\n'
+
+          for name,content in {**files,**patches}.items():
+              target=root/name
+              target.parent.mkdir(parents=True,exist_ok=True)
+              target.write_text(content,encoding='utf-8')
+
+          print('Reservas, baixa de estoque, devolução e histórico ligados ao painel.')
+          PY
+
+      - run: npm ci --ignore-scripts
+      - run: npx tsc --noEmit --incremental false
+      - run: npx next lint --no-cache
+
+      - name: Salvar atualização
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/app/admin/pedidos src/components/admin/OrderStock.tsx src/components/admin/OrderOrigin.tsx src/app/checkout src/lib/checkout-server.ts
+
+          if git diff --cached --quiet; then
+            echo "Controle já instalado."
+          else
+            git commit -m "Adicionar reservas, baixa, devolução e histórico de estoque"
+            git push origin HEAD:main
+          fi

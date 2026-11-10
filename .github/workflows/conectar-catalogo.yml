@@ -1,0 +1,1542 @@
+name: Conectar loja ao catalogo completo
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: conectar-catalogo-serenity
+  cancel-in-progress: false
+
+jobs:
+  conectar:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Preparar arquivos da loja
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          files = {
+          "src/lib/data.ts": r"""
+          export interface ProductVariant {
+            id: string
+            name: string
+            value: string
+            inStock: boolean
+          }
+
+          export interface ImportedVariation {
+            id: string
+            name: string
+            sku: string
+            price: number
+            originalPrice?: number
+            priceAvailable: boolean
+            stock: number | null
+            inStock: boolean
+            image?: string
+          }
+
+          export interface Product {
+            id: string
+            slug: string
+            name: string
+            category: string
+            categorySlug: string
+            categorySlugs?: string[]
+            price: number
+            originalPrice?: number
+            priceAvailable?: boolean
+            stock?: number | null
+            sku?: string
+            description: string
+            longDescription: string
+            material: string
+            images: string[]
+            youtubeShortId?: string
+            variants: {
+              type: string
+              label: string
+              options: ProductVariant[]
+            }[]
+            variations?: ImportedVariation[]
+            inStock: boolean
+            isBestSeller: boolean
+            isFeatured?: boolean
+            isNew: boolean
+            tags: string[]
+            related: string[]
+          }
+
+          export interface Category {
+            id: string
+            name: string
+            slug: string
+            description: string
+            image: string
+            count: number
+          }
+
+          export function plainText(value: string = ''): string {
+            return value
+              .replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, '')
+              .replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, '')
+              .replace(/\\n/g, '\n')
+              .replace(/<br\s*\/?>/gi, '\n')
+              .replace(/<\/(?:p|div|h[1-6]|li|ul|ol|tr|td|th)>/gi, '\n')
+              .replace(/<[^>]*>/g, '')
+              .replace(/&nbsp;/gi, ' ')
+              .replace(/&amp;/gi, '&')
+              .replace(/&quot;/gi, '"')
+              .replace(/&#39;/g, "'")
+              .replace(/&lt;/gi, '<')
+              .replace(/&gt;/gi, '>')
+              .replace(/&#(\d+);/g, (_, number: string) => {
+                const code = Number(number)
+                return code >= 0 && code <= 1114111
+                  ? String.fromCodePoint(code)
+                  : ''
+              })
+              .replace(/\n{3,}/g, '\n\n')
+              .trim()
+          }
+
+          export function formatPrice(price: number): string {
+            return price.toLocaleString('pt-BR', {
+              style: 'currency',
+              currency: 'BRL',
+            })
+          }
+
+          export function resolveProductSelection(
+            product: Product,
+            selected: Record<string, string>
+          ): ImportedVariation | null {
+            if (product.variations) {
+              return product.variations.find(
+                (variation) => variation.id === selected['Variação']
+              ) || null
+            }
+
+            return {
+              id: product.id,
+              name: product.name,
+              sku: product.sku || '',
+              price: product.price,
+              originalPrice: product.originalPrice,
+              priceAvailable: product.priceAvailable !== false,
+              stock: product.stock ?? null,
+              inStock: product.inStock,
+              image: product.images[0],
+            }
+          }
+
+          // Compatibilidade com componentes antigos.
+          // As páginas da loja consultam catalog-server.ts.
+          export const PRODUCTS: Product[] = []
+          export const CATEGORIES: Category[] = []
+
+          export function getProductBySlug(slug: string) {
+            return PRODUCTS.find((product) => product.slug === slug)
+          }
+
+          export function getProductsByCategory(slug: string) {
+            return PRODUCTS.filter((product) =>
+              (product.categorySlugs || [product.categorySlug]).includes(slug)
+            )
+          }
+
+          export function getBestSellers() {
+            return PRODUCTS.filter((product) => product.isBestSeller)
+          }
+
+          export function getNewArrivals() {
+            return PRODUCTS.filter((product) => product.isNew)
+          }
+
+          export function getRelatedProducts(product: Product) {
+            return PRODUCTS.filter((item) => product.related.includes(item.id))
+          }
+
+          export function getPaginatedProducts(
+            products: Product[],
+            page: number,
+            perPage: number = 12
+          ) {
+            const size = Math.max(1, Math.floor(perPage) || 12)
+            const current = Math.max(1, Math.floor(page) || 1)
+
+            return {
+              products: products.slice((current - 1) * size, current * size),
+              total: products.length,
+              totalPages: Math.ceil(products.length / size),
+            }
+          }
+          """,
+
+          "src/lib/catalog-server.ts": r"""
+          import 'server-only'
+          import { plainText } from './data'
+          import type { Category, Product, ImportedVariation } from './data'
+
+          interface Row {
+            database_id: string
+            id: string
+            woo_id: number | null
+            slug: string
+            name: string
+            product_type: string
+            visibility: string
+            sku: string | null
+            short_description: string
+            description?: string
+            material: string
+            categories: string[]
+            category_slugs: string[]
+            tags: string[]
+            featured: boolean
+            price: number | null
+            original_price: number | null
+            price_available: boolean
+            in_stock: boolean
+            stock_quantity: number | null
+            storage_path: string | null
+            thumbnail_path: string | null
+            original_path: string | null
+            search_text: string
+            seo_title?: string | null
+            seo_description?: string | null
+            related_woo_ids?: number[]
+          }
+
+          interface Media {
+            id: string
+            variant_id: string | null
+            media_type: string
+            storage_path: string | null
+            source_url: string | null
+            youtube_id: string | null
+            position: number
+          }
+
+          interface VariantRow {
+            id: string
+            woo_id: number | null
+            name: string
+            sku: string | null
+            attributes: Record<string, string>
+            regular_price: number | null
+            sale_price: number | null
+            sale_starts_at: string | null
+            sale_ends_at: string | null
+            stock_status: string
+            stock_quantity: number | null
+          }
+
+          interface ParentStock {
+            stock_quantity: number | null
+            stock_status: string
+            sold_individually: boolean
+          }
+
+          export interface StoreCategory extends Category {
+            materials: string[]
+          }
+
+          export interface StorePage {
+            products: Product[]
+            total: number
+            page: number
+            totalPages: number
+          }
+
+          interface Options {
+            category?: string
+            search?: string
+            material?: string
+            sort?: string
+            page?: number
+            perPage?: number
+            featured?: boolean
+          }
+
+          const RULES: Record<string, {
+            name: string
+            words: string[]
+            exclude?: string[]
+          }> = {
+            'piercings-de-titanio': {
+              name: 'Piercings de Titânio',
+              words: ['titanio'],
+            },
+            'piercings-de-ouro-18k': {
+              name: 'Piercings de Ouro 18k',
+              words: ['ouro'],
+              exclude: ['titanio', 'revestid', 'banhad'],
+            },
+            argolas: {
+              name: 'Argolas',
+              words: ['argola'],
+            },
+            'labrets-studs': {
+              name: 'Labrets & Studs',
+              words: ['labret', 'stud'],
+            },
+            'piercings-de-umbigo': {
+              name: 'Piercings de Umbigo',
+              words: ['umbigo'],
+            },
+            brincos: {
+              name: 'Brincos',
+              words: ['brinco'],
+            },
+          }
+
+          const LIST_FIELDS = [
+            'database_id', 'id', 'woo_id', 'slug', 'name',
+            'product_type', 'visibility', 'sku', 'short_description',
+            'material', 'categories', 'category_slugs', 'tags', 'featured',
+            'price', 'original_price', 'price_available', 'in_stock',
+            'stock_quantity', 'storage_path', 'thumbnail_path',
+          ].join(',')
+
+          function config() {
+            const url = process.env.SUPABASE_URL?.trim().replace(/\/$/, '')
+            const key = process.env.SUPABASE_PUBLISHABLE_KEY?.trim()
+
+            if (!url || !key) {
+              throw new Error('A conexão do catálogo não está configurada.')
+            }
+
+            return { url, key }
+          }
+
+          export function storageUrl(path?: string | null): string {
+            if (!path) return ''
+            return `${config().url}/storage/v1/object/public/produtos/${
+              path.split('/').map(encodeURIComponent).join('/')
+            }`
+          }
+
+          function normalize(value: string): string {
+            return value.normalize('NFD')
+              .replace(/[\u0300-\u036f]/g, '')
+              .toLowerCase()
+          }
+
+          function slugify(value: string): string {
+            return normalize(value)
+              .replace(/[^a-z0-9]+/g, '-')
+              .replace(/^-|-$/g, '')
+          }
+
+          async function read<T>(
+            table: string,
+            parameters: Record<string, string> | URLSearchParams
+          ): Promise<{ rows: T[]; total: number }> {
+            const { url, key } = config()
+            const query = new URLSearchParams(parameters)
+
+            const response = await fetch(`${url}/rest/v1/${table}?${query}`, {
+              headers: {
+                apikey: key,
+                Prefer: 'count=exact',
+              },
+              next: { revalidate: 60, tags: ['catalog'] },
+            })
+
+            if (!response.ok) {
+              console.error('Falha no catálogo:', table, response.status)
+              throw new Error('Não foi possível consultar o catálogo.')
+            }
+
+            const rows: T[] = await response.json()
+            if (!Array.isArray(rows)) {
+              throw new Error('Resposta inesperada do catálogo.')
+            }
+
+            const range = response.headers.get('content-range')
+            const count = range ? Number(range.split('/')[1]) : NaN
+
+            return {
+              rows,
+              total: Number.isFinite(count) ? count : rows.length,
+            }
+          }
+
+          async function readAll<T>(
+            table: string,
+            select: string,
+            filters: Record<string, string> = {},
+            order: string = 'id.asc'
+          ): Promise<T[]> {
+            const result: T[] = []
+
+            for (let offset = 0; ; offset += 500) {
+              const page = await read<T>(table, {
+                select, ...filters, order,
+                limit: '500', offset: String(offset),
+              })
+              result.push(...page.rows)
+              if (page.rows.length < 500) return result
+            }
+          }
+
+          async function metadata(): Promise<Row[]> {
+            const rows = await readAll<Row>(
+              'store_catalog',
+              [
+                'database_id', 'id', 'name', 'material', 'categories',
+                'category_slugs', 'featured', 'visibility',
+                'storage_path', 'thumbnail_path', 'search_text',
+              ].join(','),
+              {},
+              'woo_id.desc.nullslast,database_id.asc'
+            )
+
+            return rows.filter((row) =>
+              row.visibility === 'visible' || row.visibility === 'catalog'
+            )
+          }
+
+          function matches(row: Row, slug: string, real: boolean): boolean {
+            if (slug === 'todos' || slug === 'novidades') return true
+            if (slug === 'destaques') return row.featured
+            if (real) return row.category_slugs.includes(slug)
+
+            const rule = RULES[slug]
+            if (!rule) return false
+
+            return rule.words.some((word) => row.search_text.includes(word)) &&
+              !(rule.exclude || []).some((word) =>
+                row.search_text.includes(word)
+              )
+          }
+
+          function categoriesFrom(rows: Row[]): Category[] {
+            const groups = new Map<string, {
+              name: string
+              ids: Set<string>
+              image: string
+            }>()
+
+            rows.forEach((row) => {
+              row.categories.forEach((name) => {
+                const slug = slugify(name)
+                if (!slug) return
+
+                const group = groups.get(slug) || {
+                  name, ids: new Set<string>(), image: '',
+                }
+
+                group.ids.add(row.id)
+                if (!group.image) {
+                  group.image = storageUrl(
+                    row.thumbnail_path || row.storage_path
+                  )
+                }
+                groups.set(slug, group)
+              })
+            })
+
+            return Array.from(groups.entries()).map(([slug, group]) => ({
+              id: slug,
+              slug,
+              name: group.name,
+              description: '',
+              image: group.image,
+              count: group.ids.size,
+            })).sort((a, b) =>
+              b.count - a.count || a.name.localeCompare(b.name, 'pt-BR')
+            )
+          }
+
+          export async function getStoreCategories(): Promise<Category[]> {
+            return categoriesFrom(await metadata())
+          }
+
+          export async function getStoreCategory(
+            slug: string
+          ): Promise<StoreCategory | null> {
+            const rows = await metadata()
+            const real = categoriesFrom(rows).find((item) => item.slug === slug)
+
+            const special: Record<string, string> = {
+              todos: 'Todas as joias',
+              novidades: 'Novidades',
+              destaques: 'Destaques',
+            }
+
+            const name = real?.name || special[slug] || RULES[slug]?.name
+            if (!name) return null
+
+            const scoped = rows.filter((row) => matches(row, slug, Boolean(real)))
+            const imageRow = scoped.find((row) =>
+              row.thumbnail_path || row.storage_path
+            )
+
+            return {
+              id: slug,
+              slug,
+              name,
+              description: slug === 'novidades'
+                ? 'Explore as últimas peças adicionadas ao catálogo.'
+                : '',
+              count: scoped.length,
+              image: imageRow
+                ? storageUrl(imageRow.thumbnail_path || imageRow.storage_path)
+                : '',
+              materials: Array.from(new Set(
+                scoped.map((row) => row.material).filter(Boolean)
+              )).sort((a, b) => a.localeCompare(b, 'pt-BR')),
+            }
+          }
+
+          function asProduct(row: Row): Product {
+            const variable = row.product_type === 'variable'
+            const image = storageUrl(row.thumbnail_path || row.storage_path)
+
+            return {
+              id: row.id,
+              slug: row.slug,
+              name: row.name,
+              category: row.categories[0] || 'Joias',
+              categorySlug: slugify(row.categories[0] || 'todos'),
+              categorySlugs: row.category_slugs,
+              price: Number(row.price ?? 0),
+              originalPrice: row.original_price === null
+                ? undefined : Number(row.original_price),
+              priceAvailable: row.price_available,
+              stock: row.stock_quantity,
+              sku: row.sku || '',
+              description: plainText(row.short_description || ''),
+              longDescription: row.description || '',
+              material: row.material,
+              images: image ? [image] : [],
+              variants: variable
+                ? [{ type: 'variation', label: 'Variação', options: [] }]
+                : [],
+              variations: variable ? [] : undefined,
+              inStock: row.in_stock,
+              isBestSeller: false,
+              isFeatured: row.featured,
+              isNew: false,
+              tags: row.tags,
+              related: [],
+            }
+          }
+
+          export async function getStorePage(
+            options: Options = {}
+          ): Promise<StorePage> {
+            const size = Math.min(24, Math.max(1, options.perPage || 12))
+            let page = Math.max(1, Math.floor(options.page || 1))
+            if (!Number.isFinite(page)) page = 1
+
+            const query = new URLSearchParams({
+              select: LIST_FIELDS,
+              visibility: options.search
+                ? 'in.(visible,search)' : 'in.(visible,catalog)',
+              limit: String(size),
+              offset: String((page - 1) * size),
+            })
+
+            const orders: Record<string, string> = {
+              default: 'created_at.desc,woo_id.desc.nullslast,database_id.asc',
+              'price-asc': 'price.asc.nullslast,name.asc,database_id.asc',
+              'price-desc': 'price.desc.nullslast,name.asc,database_id.asc',
+              'name-asc': 'name.asc,database_id.asc',
+            }
+            query.set('order', orders[options.sort || 'default'] || orders.default)
+
+            if (options.featured || options.category === 'destaques') {
+              query.set('featured', 'eq.true')
+            }
+
+            const slug = options.category
+
+            if (slug && !['todos', 'novidades', 'destaques'].includes(slug)) {
+              const rows = await metadata()
+              const real = rows.some((row) => row.category_slugs.includes(slug))
+
+              if (real) {
+                if (!/^[a-z0-9-]+$/.test(slug)) {
+                  throw new Error('Categoria inválida.')
+                }
+                query.set('category_slugs', `cs.{${slug}}`)
+              } else {
+                const rule = RULES[slug]
+                if (!rule) {
+                  return { products: [], total: 0, page: 1, totalPages: 0 }
+                }
+
+                if (rule.words.length === 1) {
+                  query.append('search_text', `like.*${rule.words[0]}*`)
+                } else {
+                  query.set('or', `(${
+                    rule.words.map((word) => `search_text.like.*${word}*`).join(',')
+                  })`)
+                }
+
+                ;(rule.exclude || []).forEach((word) => {
+                  query.append('search_text', `not.like.*${word}*`)
+                })
+              }
+            }
+
+            if (options.material && options.material !== 'all') {
+              query.set('material', `eq.${options.material}`)
+            }
+
+            const words = normalize(options.search || '')
+              .replace(/[,*%_\\()"']/g, ' ')
+              .trim().split(/\s+/).filter(Boolean).slice(0, 6)
+
+            words.forEach((word) => {
+              query.append('search_text', `like.*${word}*`)
+            })
+
+            let result = await read<Row>('store_catalog', query)
+            const totalPages = Math.ceil(result.total / size)
+
+            if (totalPages > 0 && page > totalPages) {
+              page = totalPages
+              query.set('offset', String((page - 1) * size))
+              result = await read<Row>('store_catalog', query)
+            }
+
+            return {
+              products: result.rows.map(asProduct),
+              total: result.total,
+              page: result.total === 0 ? 1 : page,
+              totalPages,
+            }
+          }
+
+          function variantPrice(row: VariantRow) {
+            const regular = row.regular_price === null
+              ? null : Number(row.regular_price)
+            const sale = row.sale_price === null ? null : Number(row.sale_price)
+            const now = Date.now()
+
+            const active = regular !== null && sale !== null &&
+              sale >= 0 && sale < regular &&
+              (!row.sale_starts_at || Date.parse(row.sale_starts_at) <= now) &&
+              (!row.sale_ends_at || Date.parse(row.sale_ends_at) >= now)
+
+            return {
+              price: (active ? sale : regular) ?? 0,
+              originalPrice: active ? regular! : undefined,
+              priceAvailable: regular !== null,
+            }
+          }
+
+          interface Asset {
+            storage_path: string
+          }
+
+          let manifestPromise: Promise<Record<string, Asset>> | null = null
+          let manifestExpires = 0
+
+          async function imageManifest(): Promise<Record<string, Asset>> {
+            if (manifestPromise && Date.now() < manifestExpires) {
+              return manifestPromise
+            }
+
+            manifestExpires = Date.now() + 300000
+            manifestPromise = fetch(
+              storageUrl('migracao-v1/manifesto.json'),
+              { cache: 'no-store' }
+            ).then(async (response) => {
+              if (!response.ok) throw new Error('Manifesto de imagens indisponível.')
+              const data = await response.json()
+              return (data.images || {}) as Record<string, Asset>
+            }).catch((error) => {
+              manifestPromise = null
+              throw error
+            })
+
+            return manifestPromise
+          }
+
+          async function descriptionPhotos(description: string): Promise<string[]> {
+            const tags = description.match(/<img\b[^>]*>/gi) || []
+            if (!tags.length) return []
+
+            const manifest = await imageManifest()
+            const photos: string[] = []
+
+            tags.forEach((tag) => {
+              for (const field of ['data-src', 'data-lazy-src', 'src']) {
+                const pattern = new RegExp(
+                  `\\b${field}\\s*=\\s*["']([^"']+)["']`, 'i'
+                )
+                const match = tag.match(pattern)
+                if (!match) continue
+
+                try {
+                  const url = new URL(
+                    plainText(match[1]),
+                    'https://serenitypiercings.com.br/'
+                  )
+                  url.hash = ''
+                  const asset = manifest[url.toString()]
+
+                  if (asset) {
+                    photos.push(storageUrl(asset.storage_path))
+                    break
+                  }
+                } catch {
+                  // A imagem inválida permanece na lista de pendências.
+                }
+              }
+            })
+
+            return Array.from(new Set(photos))
+          }
+
+          export async function getStoreProduct(slug: string) {
+            if (!/^[a-zA-Z0-9_-]{1,180}$/.test(slug)) return null
+
+            const base = await read<Row>('store_catalog', {
+              select: '*', slug: `eq.${slug}`, limit: '1',
+            })
+            const row = base.rows[0]
+            if (!row) return null
+
+            const [media, variants, parentResult] = await Promise.all([
+              readAll<Media>('product_media', '*', {
+                product_id: `eq.${row.database_id}`,
+              }, 'position.asc,id.asc'),
+              readAll<VariantRow>('product_variants', '*', {
+                product_id: `eq.${row.database_id}`,
+                enabled: 'eq.true',
+              }, 'position.asc,id.asc'),
+              read<ParentStock>('products', {
+                select: 'stock_quantity,stock_status,sold_individually',
+                id: `eq.${row.database_id}`, limit: '1',
+              }),
+            ])
+
+            const product = asProduct(row)
+            const parent = parentResult.rows[0]
+            const photos = media.filter((item) => item.media_type === 'image')
+            const parentPhotos = photos.filter((item) => item.variant_id === null)
+
+            product.images = Array.from(new Set(
+              (parentPhotos.length ? parentPhotos : photos)
+                .map((item) => storageUrl(item.storage_path))
+                .filter(Boolean)
+            ))
+
+            if (row.product_type === 'variable') {
+              const combinations: ImportedVariation[] = variants.map((variant) => {
+                const prices = variantPrice(variant)
+                let stock = variant.stock_quantity
+
+                if (parent?.stock_quantity !== null &&
+                    parent?.stock_quantity !== undefined) {
+                  stock = stock === null
+                    ? parent.stock_quantity
+                    : Math.min(stock, parent.stock_quantity)
+                }
+
+                if (parent?.sold_individually) {
+                  stock = stock === null ? 1 : Math.min(stock, 1)
+                }
+
+                const label = Object.entries(variant.attributes || {})
+                  .filter(([, value]) => Boolean(value))
+                  .map(([name, value]) => `${name} ${value}`)
+                  .join(' / ')
+
+                const photo = photos.find(
+                  (item) => item.variant_id === variant.id
+                )
+
+                return {
+                  id: variant.woo_id === null
+                    ? variant.id : String(variant.woo_id),
+                  name: label || variant.name,
+                  sku: variant.sku || '',
+                  ...prices,
+                  stock,
+                  inStock: variant.stock_status === 'instock' &&
+                    parent?.stock_status !== 'outofstock' &&
+                    (stock === null || stock > 0) &&
+                    prices.priceAvailable,
+                  image: photo ? storageUrl(photo.storage_path) : undefined,
+                }
+              })
+
+              product.variations = combinations
+              product.variants = [{
+                type: 'variation',
+                label: 'Variação',
+                options: combinations.map((variation) => ({
+                  id: variation.id,
+                  name: variation.name,
+                  value: variation.id,
+                  inStock: variation.inStock,
+                })),
+              }]
+              product.inStock = combinations.some((item) => item.inStock)
+            } else if (parent?.sold_individually) {
+              product.stock = product.stock === null ||
+                product.stock === undefined
+                ? 1 : Math.min(product.stock, 1)
+            }
+
+            product.youtubeShortId = (
+              media.find((item) =>
+                item.media_type === 'youtube' && item.variant_id === null
+              ) || media.find((item) => item.media_type === 'youtube')
+            )?.youtube_id || undefined
+
+            const relatedPage = await getStorePage({
+              category: product.categorySlug,
+              perPage: 5,
+            })
+
+            const related = relatedPage.products
+              .filter((item) => item.id !== product.id).slice(0, 4)
+
+            return {
+              product,
+              related,
+              descriptionImages: await descriptionPhotos(
+                row.description || ''
+              ),
+              seoTitle: row.seo_title && !row.seo_title.includes('%')
+                ? row.seo_title : product.name,
+              seoDescription: plainText(
+                row.seo_description || product.description ||
+                product.longDescription
+              ).slice(0, 180),
+            }
+          }
+          """,
+
+          "src/components/ui/ProductCard.tsx": r"""
+          import Image from 'next/image'
+          import Link from 'next/link'
+          import { formatPrice } from '@/lib/data'
+          import type { Product } from '@/lib/data'
+          import clsx from 'clsx'
+
+          interface Props {
+            product: Product
+            className?: string
+          }
+
+          export default function ProductCard({ product, className }: Props) {
+            return (
+              <Link
+                href={`/produto/${product.slug}`}
+                prefetch={false}
+                className={clsx('group block', className)}
+              >
+                <div className="relative aspect-[3/4] overflow-hidden bg-[#F4F4F2] product-img-wrap">
+                  {product.images[0] ? (
+                    <Image
+                      src={product.images[0]}
+                      alt={product.name}
+                      fill
+                      sizes="(max-width: 640px) 50vw, (max-width: 1024px) 33vw, 25vw"
+                      className="object-contain"
+                    />
+                  ) : (
+                    <div className="flex h-full items-center justify-center px-4 text-center text-xs text-neutral-500">
+                      Imagem indisponível
+                    </div>
+                  )}
+
+                  {product.isFeatured && (
+                    <span className="absolute left-3 top-3 bg-white px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide">
+                      Destaque
+                    </span>
+                  )}
+
+                  <div className="absolute inset-x-0 bottom-0 translate-y-full bg-white py-3 text-center text-[11px] uppercase tracking-widest transition-transform duration-300 group-hover:translate-y-0">
+                    Ver produto
+                  </div>
+                </div>
+
+                <div className="space-y-1 pt-3">
+                  <p className="text-[11px] uppercase tracking-wide text-[#6B6B6B]">
+                    {product.category}
+                  </p>
+                  <p className="line-clamp-2 text-[13px] font-medium leading-tight">
+                    {product.name}
+                  </p>
+
+                  {product.priceAvailable !== false ? (
+                    <div className="flex flex-wrap items-baseline gap-2">
+                      <span className="text-[14px] font-medium">
+                        {product.variations ? (
+                          <span className="mr-1 text-[10px] font-normal">
+                            A partir de
+                          </span>
+                        ) : null}
+                        {formatPrice(product.price)}
+                      </span>
+
+                      {product.originalPrice !== undefined &&
+                        product.originalPrice > product.price && (
+                          <span className="text-[12px] text-[#6B6B6B] line-through">
+                            {formatPrice(product.originalPrice)}
+                          </span>
+                        )}
+                    </div>
+                  ) : (
+                    <p className="text-xs text-[#6B6B6B]">Consulte os detalhes</p>
+                  )}
+                </div>
+              </Link>
+            )
+          }
+          """,
+
+          "src/app/page.tsx": r"""
+          import Image from 'next/image'
+          import Link from 'next/link'
+          import { getStoreCategories, getStorePage } from '@/lib/catalog-server'
+          import ProductCard from '@/components/ui/ProductCard'
+          import VideoBlock from '@/components/ui/VideoBlock'
+
+          export const revalidate = 60
+
+          export default async function HomePage() {
+            const [categories, arrivals, featured] = await Promise.all([
+              getStoreCategories(),
+              getStorePage({ perPage: 4 }),
+              getStorePage({ featured: true, perPage: 4 }),
+            ])
+
+            const selection = featured.products.length
+              ? featured.products : arrivals.products
+
+            return (
+              <div className="bg-[#FAFAF8]">
+                <section className="relative flex min-h-[70vh] items-center justify-center overflow-hidden md:min-h-[80vh]">
+                  <Image
+                    src="https://images.unsplash.com/photo-1617038220319-276d3cfab638?w=1600&q=85"
+                    alt="Serenity Piercings"
+                    fill priority className="object-cover"
+                  />
+                  <div className="absolute inset-0 bg-black/45" />
+                  <div className="relative z-10 space-y-6 px-6 text-center text-white">
+                    <h1 className="font-display text-6xl font-light leading-none tracking-[0.2em] md:text-8xl">
+                      NOVA COLEÇÃO
+                    </h1>
+                    <p className="text-sm uppercase tracking-[0.3em] text-white/80 md:text-base">
+                      Titânio &amp; Ouro 18k
+                    </p>
+                    <Link href="/categoria/todos" className="inline-block border border-white px-8 py-4 text-[11px] uppercase tracking-[0.2em] transition-all hover:bg-white hover:text-[#0A0A0A]">
+                      Explorar agora
+                    </Link>
+                  </div>
+                </section>
+
+                <section className="border-y border-[#E5E5E5] bg-white">
+                  <div className="mx-auto grid max-w-7xl grid-cols-2 gap-4 px-4 py-5 text-center md:grid-cols-4">
+                    {[
+                      { label: 'Titânio ASTM F136', sub: 'Grau implante cirúrgico' },
+                      { label: 'Ouro 18k Sólido', sub: 'Não banhado' },
+                      { label: 'Laudo de Biocompat.', sub: 'Incluso em todos' },
+                      { label: 'Frete Grátis', sub: 'Pedidos acima de R$299' },
+                    ].map((item) => (
+                      <div key={item.label} className="py-2">
+                        <p className="text-[12px] font-medium uppercase tracking-[0.1em]">{item.label}</p>
+                        <p className="mt-0.5 text-[11px] text-[#6B6B6B]">{item.sub}</p>
+                      </div>
+                    ))}
+                  </div>
+                </section>
+
+                <section className="mx-auto max-w-7xl px-4 py-16 md:py-20">
+                  <h2 className="mb-8 font-display text-4xl font-light md:text-5xl">
+                    Explore por categoria
+                  </h2>
+                  <div className="grid grid-cols-2 gap-3 md:grid-cols-3 md:gap-4">
+                    {categories.slice(0, 6).map((category) => (
+                      <Link
+                        key={category.slug}
+                        href={`/categoria/${category.slug}`}
+                        prefetch={false}
+                        className="group relative aspect-[4/5] overflow-hidden bg-[#F4F4F2]"
+                      >
+                        {category.image && (
+                          <Image src={category.image} alt={category.name} fill sizes="(max-width: 640px) 50vw, 33vw" className="object-contain transition-transform duration-700 group-hover:scale-105" />
+                        )}
+                        <div className="absolute inset-0 bg-black/30 transition-colors group-hover:bg-black/40" />
+                        <div className="absolute inset-x-0 bottom-0 p-5">
+                          <h3 className="font-display text-xl font-light leading-tight text-white md:text-2xl">{category.name}</h3>
+                          <p className="mt-1 text-[11px] text-white/70">{category.count} peças</p>
+                        </div>
+                      </Link>
+                    ))}
+                  </div>
+                </section>
+
+                <VideoBlock
+                  poster="https://images.unsplash.com/photo-1610664921890-5b59264b73a8?w=1600&q=85"
+                  title="Feito para durar"
+                  subtitle="Conheça os materiais da Serenity"
+                  aspect="landscape"
+                  className="w-full min-h-[50vh] md:min-h-[60vh]"
+                />
+
+                <section className="mx-auto max-w-7xl px-4 py-16 md:py-20">
+                  <div className="mb-8 flex items-end justify-between gap-4">
+                    <h2 className="font-display text-4xl font-light md:text-5xl">Recém-chegados</h2>
+                    <Link href="/categoria/novidades" className="border-b border-[#0A0A0A] pb-0.5 text-[11px] uppercase tracking-[0.15em]">
+                      Ver todos
+                    </Link>
+                  </div>
+                  <div className="grid grid-cols-2 gap-4 md:grid-cols-4 md:gap-6">
+                    {arrivals.products.map((product) => (
+                      <ProductCard key={product.id} product={product} />
+                    ))}
+                  </div>
+                </section>
+
+                <section className="mx-auto max-w-7xl px-4 pb-16 md:pb-20">
+                  <div className="grid items-center gap-8 md:grid-cols-2">
+                    <div className="relative aspect-[4/5] overflow-hidden bg-[#F4F4F2]">
+                      <Image src="https://images.unsplash.com/photo-1535632787350-4e68ef0ac584?w=800&q=85" alt="Materiais Serenity" fill className="object-cover" />
+                    </div>
+                    <div className="space-y-6 md:px-8">
+                      <h2 className="font-display text-4xl font-light leading-tight md:text-5xl">Piercing como joia</h2>
+                      <p className="text-[14px] leading-relaxed text-[#6B6B6B]">
+                        Cada peça Serenity é fabricada para durar uma vida. Titânio grau implante e ouro 18k sólido — materiais aprovados por dermatologistas e tatuadores profissionais.
+                      </p>
+                      <Link href="/materiais" className="inline-block border-b border-[#0A0A0A] pb-0.5 text-[12px] uppercase tracking-[0.15em]">
+                        Sobre os materiais
+                      </Link>
+                    </div>
+                  </div>
+                </section>
+
+                <section className="bg-[#F4F4F2] py-16 md:py-20">
+                  <div className="mx-auto max-w-7xl px-4">
+                    <div className="mb-8 flex items-end justify-between gap-4">
+                      <h2 className="font-display text-4xl font-light md:text-5xl">
+                        {featured.products.length ? 'Destaques' : 'Seleção Serenity'}
+                      </h2>
+                      <Link href={featured.products.length ? '/categoria/destaques' : '/categoria/todos'} className="border-b border-[#0A0A0A] pb-0.5 text-[11px] uppercase tracking-[0.15em]">
+                        Ver todos
+                      </Link>
+                    </div>
+                    <div className="grid grid-cols-2 gap-4 md:grid-cols-4 md:gap-6">
+                      {selection.map((product) => (
+                        <ProductCard key={product.id} product={product} />
+                      ))}
+                    </div>
+                  </div>
+                </section>
+
+                <VideoBlock
+                  poster="https://images.unsplash.com/photo-1629739884942-3f5d9e9b1d96?w=1600&q=85"
+                  title="Cuide do seu piercing"
+                  subtitle="Dicas de higienização e cicatrização"
+                  aspect="landscape"
+                  className="w-full min-h-[50vh] md:min-h-[60vh]"
+                />
+              </div>
+            )
+          }
+          """,
+
+          "src/app/categoria/[slug]/page.tsx": r"""
+          import { notFound } from 'next/navigation'
+          import { getStoreCategory, getStorePage } from '@/lib/catalog-server'
+          import CategoryPageClient from './CategoryPageClient'
+
+          interface Props {
+            params: { slug: string }
+            searchParams?: Record<string, string | string[] | undefined>
+          }
+
+          function value(input: string | string[] | undefined): string {
+            return Array.isArray(input) ? input[0] || '' : input || ''
+          }
+
+          export async function generateMetadata({ params }: Props) {
+            const category = await getStoreCategory(params.slug)
+            return {
+              title: category?.name || 'Categoria não encontrada',
+              description: category?.description || undefined,
+            }
+          }
+
+          export default async function CategoryPage({ params, searchParams = {} }: Props) {
+            const category = await getStoreCategory(params.slug)
+            if (!category) notFound()
+
+            const sort = value(searchParams.sort) || 'default'
+            const material = value(searchParams.material) || 'all'
+
+            const result = await getStorePage({
+              category: params.slug,
+              material,
+              sort,
+              page: Number(value(searchParams.page)) || 1,
+              perPage: 12,
+            })
+
+            return (
+              <CategoryPageClient
+                products={result.products}
+                categoryName={category.name}
+                categoryDescription={category.description}
+                materials={category.materials}
+                material={material}
+                sort={sort}
+                page={result.page}
+                total={result.total}
+                totalPages={result.totalPages}
+              />
+            )
+          }
+          """,
+
+          "src/app/categoria/[slug]/CategoryPageClient.tsx": r"""
+          'use client'
+
+          import { useTransition } from 'react'
+          import { usePathname, useRouter } from 'next/navigation'
+          import Link from 'next/link'
+          import type { Product } from '@/lib/data'
+          import ProductCard from '@/components/ui/ProductCard'
+          import { ChevronDown } from 'lucide-react'
+
+          interface Props {
+            products: Product[]
+            categoryName: string
+            categoryDescription: string
+            materials: string[]
+            material: string
+            sort: string
+            page: number
+            total: number
+            totalPages: number
+          }
+
+          const SORT_OPTIONS = [
+            { value: 'default', label: 'Padrão' },
+            { value: 'price-asc', label: 'Menor preço' },
+            { value: 'price-desc', label: 'Maior preço' },
+            { value: 'name-asc', label: 'A-Z' },
+          ]
+
+          export default function CategoryPageClient(props: Props) {
+            const router = useRouter()
+            const pathname = usePathname()
+            const [pending, startTransition] = useTransition()
+
+            function href(page: number, material = props.material, sort = props.sort) {
+              const query = new URLSearchParams()
+              if (page > 1) query.set('page', String(page))
+              if (material !== 'all') query.set('material', material)
+              if (sort !== 'default') query.set('sort', sort)
+              return `${pathname}${query.size ? `?${query}` : ''}`
+            }
+
+            function change(material: string, sort: string) {
+              startTransition(() => {
+                router.push(href(1, material, sort))
+              })
+            }
+
+            const pages = Array.from(new Set([
+              1, props.page - 2, props.page - 1, props.page,
+              props.page + 1, props.page + 2, props.totalPages,
+            ])).filter((page) => page >= 1 && page <= props.totalPages)
+              .sort((a, b) => a - b)
+
+            return (
+              <div className="min-h-screen bg-[#FAFAF8]" aria-busy={pending}>
+                <div className="border-b border-[#E5E5E5] bg-white">
+                  <div className="mx-auto max-w-7xl px-4 py-12 md:py-16">
+                    <h1 className="font-display text-5xl font-light md:text-6xl">{props.categoryName}</h1>
+                    {props.categoryDescription && (
+                      <p className="mt-3 max-w-xl text-[13px] text-[#6B6B6B]">{props.categoryDescription}</p>
+                    )}
+                    <p className="mt-4 text-[11px] uppercase tracking-wide text-[#6B6B6B]">{props.total} produtos</p>
+                  </div>
+                </div>
+
+                <div className="mx-auto max-w-7xl px-4 py-8">
+                  <div className="mb-8 flex flex-wrap items-center justify-between gap-4 border-b border-[#E5E5E5] pb-4">
+                    <div className="flex flex-wrap gap-2">
+                      {['all', ...props.materials].map((material) => (
+                        <button
+                          key={material}
+                          type="button"
+                          disabled={pending}
+                          onClick={() => change(material, props.sort)}
+                          className={`border px-4 py-2 text-[11px] uppercase tracking-[0.1em] transition-colors disabled:opacity-50 ${
+                            props.material === material
+                              ? 'border-[#0A0A0A] bg-[#0A0A0A] text-white'
+                              : 'border-[#E5E5E5] text-[#6B6B6B] hover:border-[#0A0A0A]'
+                          }`}
+                        >
+                          {material === 'all' ? 'Todos' : material}
+                        </button>
+                      ))}
+                    </div>
+
+                    <div className="relative">
+                      <select
+                        aria-label="Ordenar produtos"
+                        value={props.sort}
+                        disabled={pending}
+                        onChange={(event) => change(props.material, event.target.value)}
+                        className="appearance-none border border-[#E5E5E5] bg-white px-4 py-2 pr-8 text-[12px] focus:outline-none disabled:opacity-50"
+                      >
+                        {SORT_OPTIONS.map((option) => (
+                          <option key={option.value} value={option.value}>{option.label}</option>
+                        ))}
+                      </select>
+                      <ChevronDown size={14} className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-[#6B6B6B]" />
+                    </div>
+                  </div>
+
+                  <div className={pending ? 'opacity-50' : ''}>
+                    {props.products.length ? (
+                      <div className="grid grid-cols-2 gap-4 md:grid-cols-3 md:gap-6 lg:grid-cols-4">
+                        {props.products.map((product) => (
+                          <ProductCard key={product.id} product={product} />
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="py-20 text-center text-sm text-[#6B6B6B]">Nenhum produto encontrado</p>
+                    )}
+                  </div>
+
+                  {props.totalPages > 1 && (
+                    <nav aria-label="Paginação" className="mt-12 flex flex-wrap items-center justify-center gap-2">
+                      {props.page > 1 && (
+                        <Link prefetch={false} href={href(props.page - 1)} aria-label="Página anterior" className="border px-4 py-3 text-xs">←</Link>
+                      )}
+                      {pages.map((page, index) => (
+                        <span key={page} className="flex items-center gap-2">
+                          {index > 0 && page - pages[index - 1] > 1 && <span>…</span>}
+                          <Link
+                            prefetch={false}
+                            href={href(page)}
+                            aria-current={page === props.page ? 'page' : undefined}
+                            className={`border px-4 py-3 text-xs ${page === props.page ? 'border-black bg-black text-white' : 'border-[#E5E5E5]'}`}
+                          >
+                            {page}
+                          </Link>
+                        </span>
+                      ))}
+                      {props.page < props.totalPages && (
+                        <Link prefetch={false} href={href(props.page + 1)} aria-label="Próxima página" className="border px-4 py-3 text-xs">→</Link>
+                      )}
+                    </nav>
+                  )}
+                </div>
+              </div>
+            )
+          }
+          """,
+
+          "src/app/busca/page.tsx": r"""
+          import Link from 'next/link'
+          import { Search } from 'lucide-react'
+          import { getStorePage } from '@/lib/catalog-server'
+          import ProductCard from '@/components/ui/ProductCard'
+
+          interface Props {
+            searchParams?: Record<string, string | string[] | undefined>
+          }
+
+          function value(input: string | string[] | undefined) {
+            return Array.isArray(input) ? input[0] || '' : input || ''
+          }
+
+          export const metadata = { title: 'Buscar produtos' }
+
+          export default async function SearchPage({ searchParams = {} }: Props) {
+            const query = value(searchParams.q).trim().slice(0, 120)
+            const result = query.length >= 2
+              ? await getStorePage({
+                  search: query,
+                  page: Number(value(searchParams.page)) || 1,
+                  perPage: 12,
+                })
+              : { products: [], total: 0, page: 1, totalPages: 0 }
+
+            function href(page: number) {
+              return `/busca?${new URLSearchParams({
+                q: query, page: String(page),
+              })}`
+            }
+
+            const pages = Array.from(new Set([
+              1, result.page - 1, result.page,
+              result.page + 1, result.totalPages,
+            ])).filter((page) => page >= 1 && page <= result.totalPages)
+              .sort((a, b) => a - b)
+
+            return (
+              <div className="min-h-screen bg-[#FAFAF8]">
+                <div className="border-b border-[#E5E5E5] bg-white">
+                  <div className="mx-auto max-w-3xl px-4 py-12">
+                    <h1 className="mb-6 font-display text-4xl font-light">Buscar</h1>
+
+                    <form action="/busca" method="get" className="flex items-center gap-3 border-b-2 border-[#0A0A0A] pb-2">
+                      <Search size={18} strokeWidth={1.5} className="shrink-0 text-[#6B6B6B]" />
+                      <input
+                        key={query}
+                        name="q"
+                        type="search"
+                        defaultValue={query}
+                        maxLength={120}
+                        placeholder="Buscar piercings, materiais, estilos..."
+                        aria-label="Buscar produtos"
+                        className="min-w-0 flex-1 bg-transparent text-[16px] outline-none placeholder:text-[#aaa]"
+                      />
+                      <button type="submit" className="text-xs uppercase tracking-wide">Buscar</button>
+                      {query && <Link href="/busca" className="text-xs text-[#6B6B6B]">Limpar</Link>}
+                    </form>
+                  </div>
+                </div>
+
+                <div className="mx-auto max-w-7xl px-4 py-10">
+                  {query.length >= 2 ? (
+                    <>
+                      <p className="mb-6 text-[12px] uppercase tracking-wide text-[#6B6B6B]">
+                        {result.total} resultado{result.total !== 1 ? 's' : ''} para “{query}”
+                      </p>
+
+                      {result.products.length ? (
+                        <div className="grid grid-cols-2 gap-4 md:grid-cols-3 md:gap-6 lg:grid-cols-4">
+                          {result.products.map((product) => (
+                            <ProductCard key={product.id} product={product} />
+                          ))}
+                        </div>
+                      ) : (
+                        <p className="py-20 text-center text-sm text-[#6B6B6B]">
+                          Nenhum produto encontrado. Tente argola, septo, helix, titânio ou ouro.
+                        </p>
+                      )}
+
+                      {result.totalPages > 1 && (
+                        <nav aria-label="Paginação da busca" className="mt-12 flex flex-wrap justify-center gap-2">
+                          {result.page > 1 && (
+                            <Link prefetch={false} href={href(result.page - 1)} aria-label="Página anterior" className="border px-4 py-3 text-xs">←</Link>
+                          )}
+                          {pages.map((page, index) => (
+                            <span key={page} className="flex items-center gap-2">
+                              {index > 0 && page - pages[index - 1] > 1 && <span>…</span>}
+                              <Link prefetch={false} href={href(page)} aria-current={page === result.page ? 'page' : undefined} className={`border px-4 py-3 text-xs ${page === result.page ? 'bg-black text-white' : ''}`}>
+                                {page}
+                              </Link>
+                            </span>
+                          ))}
+                          {result.page < result.totalPages && (
+                            <Link prefetch={false} href={href(result.page + 1)} aria-label="Próxima página" className="border px-4 py-3 text-xs">→</Link>
+                          )}
+                        </nav>
+                      )}
+                    </>
+                  ) : (
+                    <p className="py-20 text-center text-sm text-[#6B6B6B]">
+                      Digite pelo menos 2 caracteres e pressione Buscar ou Enter.
+                    </p>
+                  )}
+                </div>
+              </div>
+            )
+          }
+          """,
+
+          "src/app/produto/[slug]/page.tsx": r"""
+          import Image from 'next/image'
+          import { notFound } from 'next/navigation'
+          import type { Metadata } from 'next'
+          import { getStoreProduct } from '@/lib/catalog-server'
+          import ProductPageClient from './ProductPageClient'
+          import ProductCard from '@/components/ui/ProductCard'
+
+          interface Props {
+            params: { slug: string }
+          }
+
+          export const revalidate = 60
+          export const dynamicParams = true
+
+          export function generateStaticParams() {
+            return []
+          }
+
+          export async function generateMetadata({ params }: Props): Promise<Metadata> {
+            const result = await getStoreProduct(params.slug)
+            if (!result) return { title: 'Produto não encontrado' }
+
+            return {
+              title: result.seoTitle,
+              description: result.seoDescription,
+              openGraph: {
+                title: result.seoTitle,
+                description: result.seoDescription,
+                images: result.product.images[0]
+                  ? [{ url: result.product.images[0] }] : [],
+              },
+            }
+          }
+
+          export default async function ProductPage({ params }: Props) {
+            const result = await getStoreProduct(params.slug)
+            if (!result) notFound()
+
+            return (
+              <>
+                <ProductPageClient product={result.product} related={[]} />
+
+                {result.descriptionImages.length > 0 && (
+                  <section className="bg-[#FAFAF8] px-4 pb-12">
+                    <div className="mx-auto max-w-4xl space-y-6">
+                      {result.descriptionImages.map((src, index) => (
+                        <Image
+                          key={src}
+                          src={src}
+                          alt={`${result.product.name} — detalhe ${index + 1}`}
+                          width={1600}
+                          height={1600}
+                          sizes="(max-width: 768px) 100vw, 900px"
+                          className="h-auto w-full object-contain"
+                        />
+                      ))}
+                    </div>
+                  </section>
+                )}
+
+                {result.related.length > 0 && (
+                  <section className="border-t border-[#E5E5E5] bg-[#FAFAF8] py-16">
+                    <div className="mx-auto max-w-7xl px-4">
+                      <h2 className="mb-8 font-display text-4xl font-light">
+                        Você também pode gostar
+                      </h2>
+                      <div className="grid grid-cols-2 gap-4 md:grid-cols-4 md:gap-6">
+                        {result.related.map((product) => (
+                          <ProductCard key={product.id} product={product} />
+                        ))}
+                      </div>
+                    </div>
+                  </section>
+                )}
+              </>
+            )
+          }
+          """,
+
+          "src/app/error.tsx": r"""
+          'use client'
+
+          export default function ErrorPage({ reset }: { reset: () => void }) {
+            return (
+              <div className="min-h-[50vh] bg-[#FAFAF8] px-4 py-20 text-center">
+                <h1 className="font-display text-3xl font-light">
+                  Não foi possível carregar esta página.
+                </h1>
+                <p className="mt-4 text-sm text-[#6B6B6B]">
+                  Tente novamente em alguns instantes.
+                </p>
+                <button
+                  type="button"
+                  onClick={reset}
+                  className="mt-6 bg-black px-6 py-3 text-xs uppercase tracking-wide text-white"
+                >
+                  Tentar novamente
+                </button>
+              </div>
+            )
+          }
+          """,
+
+          "next.config.js": r"""
+          /** @type {import('next').NextConfig} */
+          const nextConfig = {
+            images: {
+              unoptimized: true,
+              remotePatterns: [
+                { protocol: 'https', hostname: 'serenitypiercings.com.br' },
+                { protocol: 'https', hostname: 'images.unsplash.com' },
+                { protocol: 'https', hostname: 'via.placeholder.com' },
+                {
+                  protocol: 'https',
+                  hostname: '*.supabase.co',
+                  pathname: '/storage/v1/object/public/produtos/**',
+                },
+              ],
+            },
+          }
+
+          module.exports = nextConfig
+          """,
+          }
+
+          for name, content in files.items():
+              path = Path(name)
+              path.parent.mkdir(parents=True, exist_ok=True)
+              path.write_text(content.strip() + "\n", encoding="utf-8")
+              print("Preparado:", name)
+
+          Path(".catalog-updated-paths").write_text(
+              "\n".join(files.keys()) + "\n",
+              encoding="utf-8",
+          )
+          PY
+
+      - name: Instalar dependencias existentes
+        run: npm ci
+
+      - name: Verificar TypeScript antes de salvar
+        run: npx --no-install tsc --noEmit
+
+      - name: Salvar alteracoes verificadas
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          while IFS= read -r file; do
+            git add -- "$file"
+          done < .catalog-updated-paths
+
+          if git diff --cached --quiet; then
+            echo "Os arquivos já estão atualizados."
+          else
+            git commit -m "Conecta catalogo completo ao Supabase com paginacao"
+            git push
+          fi
+
+          {
+            echo "# Código do catálogo atualizado"
+            echo ""
+            echo "- TypeScript verificado."
+            echo "- Catálogo, categorias e busca consultam o Supabase."
+            echo "- Categorias e busca exibem 12 produtos por página."
+            echo "- Detalhes carregam as variações do produto selecionado."
+            echo "- Header e logos preservados."
+            echo ""
+            echo "Aguarde o deploy da Vercel e teste /categoria/todos."
+          } >> "$GITHUB_STEP_SUMMARY"

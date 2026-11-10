@@ -1,0 +1,2 @@
+export const TITANIUM_INTRO = 'Seu corpo merece o melhor do mundo. Hipoalergênico, leve e feito para durar, o titânio ASTM F136 é utilizado também em implantes médicos. Segurança, conforto e qualidade incomparável em uma joia para a vida toda.'
+export const TITANIUM_CARE = 'O titânio grau implante é um material de durabilidade excepcional, feito para acompanhar você por toda a vida. Para conservar seu acabamento original, evite produtos químicos agressivos e materiais abrasivos. Faça a limpeza com água e sabonete neutro, enxaguando e secando delicadamente.'

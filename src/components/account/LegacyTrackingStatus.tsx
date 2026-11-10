@@ -1,0 +1,6 @@
+import { saleDate } from '@/lib/admin-sales'
+const labels: Record<string, string> = { pending: 'Etiqueta aguardando pagamento', released: 'Etiqueta paga', generated: 'Etiqueta gerada', received: 'Envio recebido pelo Melhor Envio', posted: 'Postado na transportadora', delivered: 'Entrega registrada pela transportadora', undelivered: 'Entrega não concluída', suspended: 'Envio suspenso', paused: 'Envio pausado', canceled: 'Etiqueta cancelada', cancelled: 'Etiqueta cancelada', expired: 'Etiqueta expirada' }
+export default function LegacyTrackingStatus({ tracking }: { tracking?: { carrier_status?: string; tracking_code?: string | null; last_checked_at?: string | null } | null }) {
+  if (!tracking || !tracking.carrier_status || !labels[tracking.carrier_status]) return null
+  return <section className="my-4 rounded-xl border border-store-border bg-store-canvas p-4 text-xs leading-6"><h3 className="font-medium">Envio pelo site atual</h3><p>{labels[tracking.carrier_status]}</p>{tracking.tracking_code && <p className="break-all">Código de rastreio: {tracking.tracking_code}</p>}{tracking.last_checked_at && <p className="text-store-muted">Consultado em {saleDate(tracking.last_checked_at)}</p>}<p className="mt-1 text-store-muted">Atualizado a partir do Melhor Envio. A situação original da compra permanece preservada no histórico.</p></section>
+}

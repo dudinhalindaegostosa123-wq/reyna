@@ -1,0 +1,13 @@
+const {test}=require('node:test'),assert=require('node:assert/strict'),{load}=require('./helpers/load.cjs')
+const copy=load('src/lib/stem-description.ts')
+test('coated titanium switches to 24K while solid gold, URLs and SKU references stay unchanged',()=>{
+ assert.equal(copy.coatedGoldCopy('Titânio Revestido de Ouro 18k'),'Titânio Revestido de Ouro 24K')
+ assert.equal(copy.coatedGoldCopy('Titânio banhado em ouro 18K'),'Titânio banhado em ouro 24K')
+ assert.equal(copy.coatedGoldCopy('Revestimento: ouro 18K',true),'Revestimento: ouro 24K')
+ assert.equal(copy.coatedGoldCopy('Ouro 18K maciço'),'Ouro 18K maciço')
+ assert.equal(copy.coatedGoldCopy('Compare com ouro 18K maciço',true),'Compare com ouro 18K maciço')
+ assert.equal(copy.coatedGoldCopy('<a href="/titanio-revestido-de-ouro-18k">Titânio revestido de ouro 18K</a>'),'<a href="/titanio-revestido-de-ouro-18k">Titânio revestido de ouro 24K</a>')
+ assert.equal(copy.coatedGoldCopy('https://example.com/ouro18k',true),'https://example.com/ouro18k')
+ assert.equal(copy.coatedGoldCopy('OR18 - Argola Ouro 18K Maciço'),'OR18 - Argola Ouro 18K Maciço')
+ assert.equal(copy.coatedGoldCopy(copy.coatedGoldCopy('Titânio revestido de ouro 18K')),'Titânio revestido de ouro 24K')
+})

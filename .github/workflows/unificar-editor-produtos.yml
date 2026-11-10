@@ -1,0 +1,1086 @@
+name: Unificar editor de produtos
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: unificar-editor-produtos
+  cancel-in-progress: false
+
+jobs:
+  instalar:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Unificar as telas
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          root = Path.cwd()
+
+          files = {
+              'src/lib/admin-unified.ts': r'''import { buildPayload } from '@/lib/admin-product-editor'
+          import type { ProductBundle, EditableProduct } from '@/lib/admin-product-editor'
+          import { attributes, lines, uuid, youtubeId } from '@/lib/admin-catalog-tools'
+
+          export interface EditorPhoto {
+            id: string
+            variant_id: string | null
+            storage_path: string | null
+            thumbnail_path?: string | null
+            alt_text: string
+            media_type: string
+            youtube_id?: string | null
+          }
+
+          export interface EditorBundle extends ProductBundle {
+            media: EditorPhoto[]
+          }
+
+          export interface EditorResult {
+            error: string
+            url?: string
+          }
+
+          export function emptyProduct(id: string, name = ''): EditableProduct {
+            return {
+              id,
+              name,
+              sku: null,
+              regular_price: null,
+              sale_price: null,
+              stock_quantity: null,
+              stock_status: 'outofstock',
+              enabled: true,
+              product_type: 'simple',
+              visibility: 'visible',
+              status: 'draft',
+              short_description: '',
+              description: '',
+              material: '',
+              categories: [],
+              tags: [],
+              featured: false,
+              sold_individually: false,
+              attributes: {},
+              commercial: {},
+            }
+          }
+
+          export function formText(form: FormData, key: string, max = 300): string {
+            const value = form.get(key)
+
+            if (typeof value !== 'string' || value.length > max) {
+              throw new Error(`Confira o campo ${key}.`)
+            }
+
+            return value.trim()
+          }
+
+          export function editorPayload(bundle: EditorBundle, form: FormData, isNew: boolean) {
+            const ids: unknown = JSON.parse(formText(form, 'new_variants', 10000))
+
+            if (!Array.isArray(ids) || ids.length > 100) {
+              throw new Error('Adicione até 100 novas variações por salvamento.')
+            }
+
+            const newIds = ids.map(uuid)
+            const allIds = [...bundle.variants.map(v => String(v.id)), ...newIds]
+
+            if (new Set(allIds).size !== allIds.length) {
+              throw new Error('Variações repetidas. Atualize a página.')
+            }
+
+            const extended = {
+              ...bundle,
+              variants: [
+                ...bundle.variants,
+                ...newIds.map(id => emptyProduct(id)),
+              ],
+            }
+
+            const payload = buildPayload(extended, form)
+
+            payload.product.material = formText(form, 'p.material', 180)
+            payload.product.categories = lines(formText(form, 'p.categories', 16000))
+            payload.product.tags = lines(formText(form, 'p.tags', 16000))
+            payload.product.featured = form.get('p.featured') === 'on'
+            payload.product.sold_individually = form.get('p.sold_individually') === 'on'
+
+            const type = formText(form, 'p.product_type', 30)
+
+            if (isNew && !['simple', 'variable'].includes(type)) {
+              throw new Error('Tipo de produto inválido.')
+            }
+
+            payload.product.product_type = allIds.length ? 'variable' : type
+
+            if (isNew) {
+              const stem = String(payload.product.name)
+                .normalize('NFD')
+                .replace(/[\u0300-\u036f]/g, '')
+                .toLowerCase()
+                .replace(/[^a-z0-9]+/g, '-')
+                .replace(/^-|-$/g, '')
+                .slice(0, 130) || 'produto'
+
+              payload.product.slug = `${stem}-${uuid(bundle.product.id)}`
+
+              if (
+                payload.product.status === 'published' &&
+                payload.product.product_type === 'variable' &&
+                !allIds.length
+              ) {
+                throw new Error('Adicione uma variação ou mantenha o produto como rascunho.')
+              }
+            }
+
+            const variants: Record<string, unknown>[] = payload.variants
+
+            variants.forEach((variant, index) => {
+              const row = extended.variants[index]
+              const raw = formText(form, `v.${row.id}.attributes`, 20000)
+              const pairs = JSON.parse(raw)
+              const old = (row.attributes || {}) as Record<string, string>
+
+              const parsed =
+                Array.isArray(pairs) &&
+                !pairs.length &&
+                !newIds.includes(String(row.id))
+                  ? {}
+                  : attributes(raw)
+
+              variant.attributes = parsed
+
+              if (
+                variant.enabled &&
+                Object.keys(parsed).length &&
+                variants.slice(0, index).some((other, i) =>
+                  other.enabled &&
+                  JSON.stringify(
+                    Object.entries(
+                      (other.attributes || {}) as Record<string, string>
+                    ).sort()
+                  ) === JSON.stringify(Object.entries(parsed).sort()) &&
+                  (
+                    newIds.includes(String(row.id)) ||
+                    JSON.stringify(old) !== JSON.stringify(parsed) ||
+                    newIds.includes(String(extended.variants[i].id))
+                  )
+                )
+              ) {
+                throw new Error('Duas variações estão com a mesma combinação de atributos.')
+              }
+            })
+
+            const photos: unknown = JSON.parse(formText(form, 'photos', 250000))
+
+            if (!Array.isArray(photos) || photos.length > 250) {
+              throw new Error('Use até 250 fotos por produto.')
+            }
+
+            const normalized = photos.map((photo: unknown) => {
+              if (!photo || typeof photo !== 'object') {
+                throw new Error('Foto inválida.')
+              }
+
+              const entry = photo as Record<string, unknown>
+              const variant = entry.variant_id ? uuid(entry.variant_id) : null
+
+              if (variant && !allIds.includes(variant)) {
+                throw new Error('Uma foto está vinculada a uma variação inválida.')
+              }
+
+              if (
+                typeof entry.alt_text !== 'string' ||
+                entry.alt_text.length > 300
+              ) {
+                throw new Error('Descrição da foto inválida.')
+              }
+
+              return {
+                id: uuid(entry.id),
+                variant_id: variant,
+                alt_text: entry.alt_text,
+              }
+            })
+
+            if (new Set(normalized.map(p => p.id)).size !== normalized.length) {
+              throw new Error('Fotos repetidas.')
+            }
+
+            const input = formText(form, 'youtube', 1000)
+            const video = input ? youtubeId(input) : null
+            const original =
+              bundle.media.find(m => m.media_type === 'youtube')?.youtube_id || null
+
+            return {
+              ...payload,
+              variants,
+              photos: normalized,
+              youtube_id: video,
+              video_changed: video !== original,
+            }
+          }
+          ''',
+
+              'src/app/admin/produtos/[id]/unified-actions.ts': r''''use server'
+
+          import { randomUUID } from 'crypto'
+          import sharp from 'sharp'
+          import { revalidatePath, revalidateTag } from 'next/cache'
+          import { adminDatabase } from '@/lib/admin-auth'
+          import { editorPayload, emptyProduct } from '@/lib/admin-unified'
+          import type { EditorBundle, EditorResult } from '@/lib/admin-unified'
+          import { uuid } from '@/lib/admin-catalog-tools'
+
+          export async function stageEditorPhoto(
+            id: string,
+            form: FormData
+          ): Promise<{ error: string; id?: string; path?: string }> {
+            const { db, user } = await adminDatabase()
+            const uploaded: string[] = []
+
+            try {
+              uuid(id)
+
+              const file = form.get('image')
+
+              if (
+                !file ||
+                typeof file === 'string' ||
+                file.size < 1 ||
+                file.size > 3 * 1024 * 1024
+              ) {
+                throw new Error('Cada foto deve ser JPG, PNG ou WebP de até 3 MB.')
+              }
+
+              const bytes = Buffer.from(await file.arrayBuffer())
+              const info = await sharp(bytes, {
+                limitInputPixels: 40000000,
+              }).metadata()
+
+              if (
+                !['jpeg', 'png', 'webp'].includes(info.format || '') ||
+                (info.pages || 1) > 1
+              ) {
+                throw new Error('Use uma imagem estática JPG, PNG ou WebP.')
+              }
+
+              const gallery = await sharp(bytes, { limitInputPixels: 40000000 })
+                .rotate()
+                .resize({
+                  width: 1800,
+                  height: 1800,
+                  fit: 'inside',
+                  withoutEnlargement: true,
+                })
+                .webp({ quality: 94 })
+                .toBuffer()
+
+              const thumbnail = await sharp(bytes, { limitInputPixels: 40000000 })
+                .rotate()
+                .resize({
+                  width: 600,
+                  height: 600,
+                  fit: 'inside',
+                  withoutEnlargement: true,
+                })
+                .webp({ quality: 90 })
+                .toBuffer()
+
+              const photoId = randomUUID()
+              const folder = `admin/${id}/${photoId}`
+
+              const media = {
+                storage_path: `${folder}/galeria.webp`,
+                thumbnail_path: `${folder}/miniatura.webp`,
+                original_path: `${folder}/original.${info.format === 'jpeg' ? 'jpg' : info.format}`,
+              }
+
+              const items: [string, Buffer, string][] = [
+                [media.original_path, bytes, `image/${info.format}`],
+                [media.storage_path, gallery, 'image/webp'],
+                [media.thumbnail_path, thumbnail, 'image/webp'],
+              ]
+
+              for (const [path, buffer, contentType] of items) {
+                const result = await db.storage.from('produtos').upload(path, buffer, {
+                  contentType,
+                  upsert: false,
+                  cacheControl: '31536000',
+                })
+
+                if (result.error) {
+                  throw new Error('Não foi possível enviar uma foto. Tente novamente.')
+                }
+
+                uploaded.push(path)
+              }
+
+              const result = await db.from('serenity_admin_photo_uploads').insert({
+                id: photoId,
+                product_id: id,
+                admin_id: user.id,
+                media,
+              })
+
+              if (result.error) {
+                throw new Error('Não foi possível preparar a foto. Confira se o novo SQL foi executado.')
+              }
+
+              return {
+                error: '',
+                id: photoId,
+                path: media.thumbnail_path,
+              }
+            } catch (error) {
+              if (uploaded.length) {
+                await db.storage.from('produtos').remove(uploaded)
+              }
+
+              return {
+                error: error instanceof Error ? error.message : 'Não foi possível enviar a foto.',
+              }
+            }
+          }
+
+          export async function saveUnifiedEditor(
+            id: string,
+            isNew: boolean,
+            form: FormData,
+            validateOnly = false
+          ): Promise<EditorResult> {
+            const { db, user } = await adminDatabase()
+
+            try {
+              uuid(id)
+              let bundle: EditorBundle
+
+              if (isNew) {
+                bundle = {
+                  product: emptyProduct(id),
+                  variants: [],
+                  commercial: {},
+                  version: '',
+                  media: [],
+                }
+              } else {
+                const read = await db.rpc('serenity_admin_read_editor', {
+                  p_product_id: id,
+                })
+
+                if (read.error || !read.data) {
+                  throw new Error('Não foi possível carregar o produto.')
+                }
+
+                bundle = read.data as EditorBundle
+
+                if (form.get('version') !== bundle.version) {
+                  throw new Error('Este produto foi alterado em outra operação. Copie suas alterações e recarregue antes de salvar.')
+                }
+              }
+
+              const payload = editorPayload(bundle, form, isNew)
+
+              if (validateOnly) return { error: '' }
+
+              const saved = await db.rpc('serenity_admin_save_editor', {
+                p_product_id: id,
+                p_admin_id: user.id,
+                p_version: bundle.version,
+                p_create: isNew,
+                p_payload: payload,
+              })
+
+              if (saved.error) {
+                const message = saved.error.message || ''
+
+                throw new Error(
+                  message.includes('STALE_PRODUCT')
+                    ? 'O produto foi alterado por outra operação. Copie suas alterações e recarregue.'
+                    : message.includes('DUPLICATE_VARIANT')
+                    ? 'Existem variações habilitadas com os mesmos atributos.'
+                    : message.includes('ALREADY_CREATED')
+                    ? 'O produto já foi criado. Volte à listagem e abra a peça para continuar.'
+                    : 'Não foi possível salvar. Suas alterações continuam na tela para tentar novamente.'
+                )
+              }
+
+              revalidateTag('catalog')
+              revalidatePath('/admin/produtos')
+              revalidatePath(`/admin/produtos/${id}`)
+
+              const slug = isNew ? payload.product.slug : bundle.product.slug
+
+              if (typeof slug === 'string') {
+                revalidatePath(`/produto/${slug}`)
+              }
+
+              return {
+                error: '',
+                url: `/admin/produtos/${id}?salvo=1`,
+              }
+            } catch (error) {
+              return {
+                error: error instanceof Error ? error.message : 'Não foi possível salvar.',
+              }
+            }
+          }
+          ''',
+
+              'src/app/admin/produtos/[id]/UnifiedProductEditor.tsx': r''''use client'
+
+          import { useEffect, useRef, useState } from 'react'
+          import Image from 'next/image'
+          import { useRouter } from 'next/navigation'
+          import type { EditableProduct, Commercial } from '@/lib/admin-product-editor'
+          import { emptyProduct } from '@/lib/admin-unified'
+          import type { EditorBundle, EditorPhoto } from '@/lib/admin-unified'
+          import { saveUnifiedEditor, stageEditorPhoto } from './unified-actions'
+
+          interface Photo extends EditorPhoto {
+            file?: File
+            preview?: string
+            staged?: boolean
+          }
+
+          const field = 'mt-2 min-h-[44px] min-w-0 w-full rounded-xl border border-[#DFD7CB] bg-white px-3 py-2 text-base outline-none focus:border-[#947B57] sm:text-sm'
+          const card = 'rounded-3xl border border-[#E5DED3] bg-white p-5 sm:p-7'
+          const smallButton = 'min-h-[38px] rounded-full border border-[#DFD7CB] px-4 py-2 text-xs disabled:opacity-40'
+
+          function Field({ name, label, value, long = false, limit = 300 }: {
+            name: string
+            label: string
+            value: unknown
+            long?: boolean
+            limit?: number
+          }) {
+            return <label className="block min-w-0 text-xs text-[#625B51]">
+              {label}
+              {long
+                ? <textarea name={name} defaultValue={String(value ?? '')} maxLength={limit} rows={5} className={field} />
+                : <input name={name} defaultValue={String(value ?? '')} maxLength={limit} className={field} />}
+            </label>
+          }
+
+          function PriceStock({ row, prefix }: { row: EditableProduct; prefix: string }) {
+            return <div className="grid gap-4 sm:grid-cols-2">
+              <Field name={`${prefix}regular_price`} label="Preço base (R$)" value={row.regular_price} limit={40} />
+              <Field name={`${prefix}sale_price`} label="Preço promocional (R$) · Opcional" value={row.sale_price} limit={40} />
+              <Field name={`${prefix}stock_quantity`} label="Quantidade · Vazio: sem quantidade definida" value={row.stock_quantity} limit={40} />
+
+              <label className="block text-xs">Situação do estoque
+                <select name={`${prefix}stock_status`} defaultValue={row.stock_status} className={field}>
+                  <option value="instock">Em estoque</option>
+                  <option value="outofstock">Sem estoque</option>
+                  <option value="onbackorder">Sob encomenda</option>
+                </select>
+              </label>
+
+              {Boolean(row.sale_starts_at || row.sale_ends_at) && <p className="text-[11px] text-[#81796C] sm:col-span-2">O agendamento de promoção existente será preservado.</p>}
+            </div>
+          }
+
+          function CommercialFields({ value, prefix }: { value: Commercial; prefix: string }) {
+            return <div className="rounded-2xl bg-[#F8F5EF] p-4">
+              <p className="mb-4 text-xs font-medium">Fornecedor e custo · Opcionais, uso interno</p>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <Field name={`${prefix}supplier_name`} label="Fornecedor" value={value.supplier_name} limit={180} />
+                <Field name={`${prefix}unit_cost`} label="Custo unitário (R$)" value={value.unit_cost} limit={40} />
+              </div>
+              <p className="mt-3 text-[11px] text-[#81796C]">Vazio significa não informado. Na variação, vazio permite usar o dado do produto.</p>
+            </div>
+          }
+
+          function Attributes({ prefix, value, isNew }: {
+            prefix: string
+            value: Record<string, string>
+            isNew: boolean
+          }) {
+            const [pairs, setPairs] = useState<[string, string][]>(
+              Object.entries(value).length
+                ? Object.entries(value)
+                : isNew ? [['', '']] : []
+            )
+
+            return <div className="rounded-2xl bg-[#F8F5EF] p-4">
+              <input type="hidden" name={`${prefix}attributes`} value={JSON.stringify(pairs)} />
+              <p className="mb-3 text-xs font-medium">Atributos · Exemplo: Cor / Azul; Medida / 8 mm</p>
+
+              <div className="space-y-3">
+                {pairs.map((pair, index) => <div key={index} className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] gap-2">
+                  {[0, 1].map(part => <input
+                    key={part}
+                    aria-label={`${part === 0 ? 'Atributo' : 'Valor'} ${index + 1}`}
+                    value={pair[part]}
+                    onChange={event => setPairs(old => old.map((p, i) =>
+                      i !== index ? p : part === 0
+                        ? [event.target.value, p[1]]
+                        : [p[0], event.target.value]
+                    ))}
+                    required
+                    maxLength={part === 0 ? 120 : 180}
+                    placeholder={part === 0 ? 'Cor' : 'Azul'}
+                    className={field}
+                  />)}
+
+                  <button type="button" className="px-2" aria-label="Remover atributo" onClick={() => setPairs(old => old.filter((_, i) => i !== index))}>×</button>
+                </div>)}
+              </div>
+
+              <button type="button" disabled={pairs.length >= 20} onClick={() => setPairs(old => [...old, ['', '']])} className="mt-4 text-xs underline">+ Atributo</button>
+            </div>
+          }
+
+          export default function UnifiedProductEditor({ bundle, storageUrl, isNew = false }: {
+            bundle: EditorBundle
+            storageUrl: string
+            isNew?: boolean
+          }) {
+            const router = useRouter()
+            const formRef = useRef<HTMLFormElement>(null)
+            const urls = useRef(new Set<string>())
+            const staged = useRef(new Map<string, { id: string; path: string }>())
+            const [variants, setVariants] = useState<EditableProduct[]>(bundle.variants)
+            const [photos, setPhotos] = useState<Photo[]>(
+              bundle.media.filter(m => m.media_type === 'image')
+            )
+            const [saving, setSaving] = useState(false)
+            const [message, setMessage] = useState('')
+            const [error, setError] = useState('')
+            const product = bundle.product
+            const originalIds = new Set(bundle.variants.map(v => String(v.id)))
+            const newIds = variants
+              .filter(v => !originalIds.has(String(v.id)))
+              .map(v => String(v.id))
+
+            useEffect(() => {
+              const created = urls.current
+              return () => {
+                created.forEach(url => URL.revokeObjectURL(url))
+              }
+            }, [])
+
+            const imageUrl = (path: string) =>
+              `${storageUrl}/storage/v1/object/public/produtos/${path.split('/').map(encodeURIComponent).join('/')}`
+
+            function addPhotos(files: FileList | null, variant: string | null) {
+              if (!files) return
+
+              const added: Photo[] = []
+
+              for (const file of Array.from(files)) {
+                if (file.size > 3 * 1024 * 1024 || file.size < 1) {
+                  setError('Cada foto deve ter até 3 MB.')
+                  continue
+                }
+
+                const preview = URL.createObjectURL(file)
+                urls.current.add(preview)
+
+                added.push({
+                  id: crypto.randomUUID(),
+                  media_type: 'image',
+                  variant_id: variant,
+                  storage_path: null,
+                  alt_text: '',
+                  file,
+                  preview,
+                })
+              }
+
+              setPhotos(old => [...old, ...added])
+            }
+
+            function movePhoto(photo: Photo, delta: number) {
+              const group = photos.filter(p => p.variant_id === photo.variant_id)
+              const neighbor = group[
+                group.findIndex(p => p.id === photo.id) + delta
+              ]
+
+              if (!neighbor) return
+
+              setPhotos(old => {
+                const copy = [...old]
+                const a = copy.findIndex(p => p.id === photo.id)
+                const b = copy.findIndex(p => p.id === neighbor.id)
+                ;[copy[a], copy[b]] = [copy[b], copy[a]]
+                return copy
+              })
+            }
+
+            function photoFields(variant: string | null) {
+              return <div>
+                <label className="block text-xs">
+                  {variant ? 'Fotos desta variação' : 'Fotos gerais do produto'}
+                  <input
+                    type="file"
+                    multiple
+                    accept="image/jpeg,image/png,image/webp"
+                    className={field}
+                    onChange={event => {
+                      addPhotos(event.target.files, variant)
+                      event.target.value = ''
+                    }}
+                  />
+                </label>
+
+                <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-3">
+                  {photos.filter(p => p.variant_id === variant).map(photo => <div key={photo.id} className="min-w-0 rounded-2xl border border-[#E5DED3] p-3">
+                    <div className="relative aspect-square overflow-hidden rounded-xl bg-[#F8F5EF]">
+                      <Image
+                        src={photo.preview || imageUrl(photo.thumbnail_path || photo.storage_path || '')}
+                        alt={photo.alt_text || 'Foto da joia'}
+                        fill
+                        sizes="(max-width: 640px) 40vw, 250px"
+                        unoptimized
+                        className="object-contain"
+                      />
+                    </div>
+
+                    <input
+                      aria-label="Descrição da foto"
+                      value={photo.alt_text || ''}
+                      maxLength={300}
+                      placeholder="Descrição da foto"
+                      className={`${field} text-xs`}
+                      onChange={event => setPhotos(old => old.map(p =>
+                        p.id === photo.id
+                          ? { ...p, alt_text: event.target.value }
+                          : p
+                      ))}
+                    />
+
+                    <select
+                      aria-label="Vincular foto a"
+                      value={photo.variant_id || ''}
+                      className={`${field} text-xs`}
+                      onChange={event => setPhotos(old => old.map(p =>
+                        p.id === photo.id
+                          ? { ...p, variant_id: event.target.value || null }
+                          : p
+                      ))}
+                    >
+                      <option value="">Produto geral</option>
+                      {variants.map((v, i) => <option key={v.id} value={v.id}>Variação {i + 1} · {v.name}</option>)}
+                    </select>
+
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      <button type="button" aria-label="Mover foto antes" className={smallButton} onClick={() => movePhoto(photo, -1)}>←</button>
+                      <button type="button" aria-label="Mover foto depois" className={smallButton} onClick={() => movePhoto(photo, 1)}>→</button>
+                    </div>
+
+                    {!variant && <button type="button" className="mt-3 block text-xs underline" onClick={() => setPhotos(old => [photo, ...old.filter(p => p.id !== photo.id)])}>Usar como capa</button>}
+
+                    <button type="button" className="mt-3 block text-xs text-red-800" onClick={() => setPhotos(old => old.filter(p => p.id !== photo.id))}>Remover foto</button>
+                  </div>)}
+                </div>
+              </div>
+            }
+
+            async function save(event: React.FormEvent<HTMLFormElement>) {
+              event.preventDefault()
+
+              if (saving || !formRef.current) return
+
+              const form = new FormData(formRef.current)
+
+              form.set('photos', JSON.stringify(
+                photos.map(p => ({
+                  id: p.id,
+                  variant_id: p.variant_id,
+                  alt_text: p.alt_text || '',
+                }))
+              ))
+
+              setSaving(true)
+              setError('')
+              setMessage('Conferindo os campos…')
+
+              try {
+                const validation = await saveUnifiedEditor(
+                  String(product.id),
+                  isNew,
+                  form,
+                  true
+                )
+
+                if (validation.error) throw new Error(validation.error)
+
+                const finalPhotos = []
+                let completed = 0
+
+                for (const photo of photos) {
+                  let photoId = photo.id
+
+                  if (photo.file) {
+                    setMessage(
+                      `Preparando foto ${++completed} de ${photos.filter(p => p.file).length}…`
+                    )
+
+                    let result = staged.current.get(photo.id)
+
+                    if (!result) {
+                      const upload = new FormData()
+                      upload.set('image', photo.file)
+
+                      const response = await stageEditorPhoto(
+                        String(product.id),
+                        upload
+                      )
+
+                      if (response.error || !response.id || !response.path) {
+                        throw new Error(response.error || 'Não foi possível enviar a foto.')
+                      }
+
+                      result = {
+                        id: response.id,
+                        path: response.path,
+                      }
+
+                      staged.current.set(photo.id, result)
+                    }
+
+                    photoId = result.id
+                  }
+
+                  finalPhotos.push({
+                    id: photoId,
+                    variant_id: photo.variant_id,
+                    alt_text: photo.alt_text || '',
+                  })
+                }
+
+                form.set('photos', JSON.stringify(finalPhotos))
+                setMessage('Salvando todas as alterações…')
+
+                const result = await saveUnifiedEditor(
+                  String(product.id),
+                  isNew,
+                  form
+                )
+
+                if (result.error || !result.url) {
+                  throw new Error(result.error || 'Não foi possível salvar.')
+                }
+
+                router.replace(result.url)
+                router.refresh()
+              } catch (failure) {
+                setError(
+                  failure instanceof Error
+                    ? failure.message
+                    : 'Não foi possível salvar.'
+                )
+                setSaving(false)
+                setMessage('')
+              }
+            }
+
+            return <form ref={formRef} onSubmit={save} className="space-y-5">
+              <input type="hidden" name="version" value={bundle.version} />
+              <input type="hidden" name="new_variants" value={JSON.stringify(newIds)} />
+              <input type="hidden" name="p.product_type" value={String(product.product_type || 'simple')} />
+
+              <fieldset disabled={saving} className="min-w-0 space-y-5 disabled:opacity-70">
+                <section className={card}>
+                  <h2 className="mb-5 text-lg font-medium">Informações do produto</h2>
+
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    <Field name="p.name" label="Nome" value={product.name} />
+                    <Field name="p.sku" label="SKU" value={product.sku} limit={180} />
+
+                    <label className="block text-xs">Publicação
+                      <select name="p.status" defaultValue={String(product.status)} className={field}>
+                        <option value="draft">Rascunho</option>
+                        <option value="published">Publicado</option>
+                      </select>
+                    </label>
+
+                    <Field name="p.material" label="Material" value={product.material} limit={180} />
+                  </div>
+
+                  <div className="mt-5 space-y-4">
+                    <Field name="p.short_description" label="Descrição curta" value={product.short_description} long limit={20000} />
+                    <Field name="p.description" label="Descrição completa · HTML existente é preservado" value={product.description} long limit={500000} />
+                  </div>
+                </section>
+
+                <section className={card}>
+                  <h2 className="mb-5 text-lg font-medium">Categorias e organização</h2>
+
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    <Field name="p.categories" label="Categorias · Uma por linha" value={((product.categories || []) as string[]).join('\n')} long limit={16000} />
+                    <Field name="p.tags" label="Tags / termos de busca · Um por linha" value={((product.tags || []) as string[]).join('\n')} long limit={16000} />
+                  </div>
+
+                  <div className="mt-5 flex flex-wrap gap-5 text-xs">
+                    <label><input type="checkbox" name="p.featured" defaultChecked={product.featured === true} /> Destaque</label>
+                    <label><input type="checkbox" name="p.sold_individually" defaultChecked={product.sold_individually === true} /> Limitar a uma unidade por compra</label>
+                  </div>
+                </section>
+
+                <section className={card}>
+                  <h2 className="mb-5 text-lg font-medium">Preços, estoque e fornecedor</h2>
+
+                  {variants.length > 0 && <p className="mb-4 text-xs text-[#81796C]">Os preços das opções ficam nas variações abaixo. O estoque geral pode limitar a disponibilidade de todas elas.</p>}
+
+                  <PriceStock row={product} prefix="p." />
+
+                  <div className="mt-5">
+                    <CommercialFields value={bundle.commercial} prefix="p." />
+                  </div>
+                </section>
+
+                <section className={card}>
+                  <h2 className="mb-3 text-lg font-medium">Galeria e vídeo</h2>
+                  <p className="mb-5 text-xs text-[#81796C]">A primeira foto geral é a capa. Envie JPG, PNG ou WebP de até 3 MB cada. As fotos das opções ficam dentro das variações.</p>
+
+                  {photoFields(null)}
+
+                  <div className="mt-6">
+                    <Field
+                      name="youtube"
+                      label="Vídeo do YouTube / Shorts · Vazio: remover vídeo"
+                      value={bundle.media.find(m => m.media_type === 'youtube')?.youtube_id || ''}
+                      limit={1000}
+                    />
+                  </div>
+                </section>
+
+                <section className={card}>
+                  <div className="mb-5 flex flex-wrap items-center justify-between gap-4">
+                    <h2 className="text-lg font-medium">Variações ({variants.length})</h2>
+
+                    <button
+                      type="button"
+                      className={smallButton}
+                      onClick={() => setVariants(old => [
+                        ...old,
+                        emptyProduct(
+                          crypto.randomUUID(),
+                          String(
+                            (formRef.current?.elements.namedItem('p.name') as HTMLInputElement | null)?.value ||
+                            product.name ||
+                            'Nova variação'
+                          )
+                        ),
+                      ])}
+                    >
+                      + Adicionar variação
+                    </button>
+                  </div>
+
+                  {!variants.length && <p className="text-xs text-[#81796C]">Produto simples. Adicione variações se houver opções de cor, tamanho ou medida.</p>}
+
+                  <div className="space-y-4">
+                    {variants.map((variant, index) => {
+                      const prefix = `v.${variant.id}.`
+                      const fresh = !originalIds.has(String(variant.id))
+
+                      return <div key={variant.id} className="rounded-2xl border border-[#E5DED3] p-4 sm:p-5">
+                        <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+                          <h3 className="text-sm font-medium">Variação {index + 1}{fresh ? ' · Nova' : ''}</h3>
+
+                          {fresh && <button
+                            type="button"
+                            className="text-xs text-red-800"
+                            onClick={() => {
+                              setVariants(old => old.filter(v => v.id !== variant.id))
+                              setPhotos(old => old.map(p =>
+                                p.variant_id === variant.id
+                                  ? { ...p, variant_id: null }
+                                  : p
+                              ))
+                            }}
+                          >
+                            Remover variação
+                          </button>}
+                        </div>
+
+                        <div className="space-y-5">
+                          <div className="grid gap-4 sm:grid-cols-2">
+                            <Field name={`${prefix}name`} label="Nome da variação" value={variant.name} />
+                            <Field name={`${prefix}sku`} label="SKU da variação" value={variant.sku} limit={180} />
+                          </div>
+
+                          <Attributes
+                            prefix={prefix}
+                            value={(variant.attributes || {}) as Record<string, string>}
+                            isNew={fresh}
+                          />
+
+                          <PriceStock row={variant} prefix={prefix} />
+
+                          <label className="flex items-center gap-2 text-xs">
+                            <input type="checkbox" name={`${prefix}enabled`} defaultChecked={variant.enabled !== false} />
+                            Variação habilitada
+                          </label>
+
+                          {photoFields(String(variant.id))}
+
+                          <CommercialFields
+                            prefix={prefix}
+                            value={variant.commercial || {}}
+                          />
+                        </div>
+                      </div>
+                    })}
+                  </div>
+                </section>
+
+                <section className={card}>
+                  <h2 className="mb-5 text-lg font-medium">SEO do produto</h2>
+
+                  <div className="space-y-4">
+                    <Field name="p.seo_title" label="Título para buscadores" value={product.seo_title} />
+                    <Field name="p.seo_description" label="Descrição para buscadores" value={product.seo_description} long limit={2000} />
+                  </div>
+                </section>
+              </fieldset>
+
+              {error && <p role="alert" className="rounded-2xl bg-red-50 p-4 text-sm text-red-800">{error}</p>}
+
+              <div className="sticky bottom-0 z-20 flex flex-wrap items-center justify-between gap-3 border-t border-[#E5DED3] bg-[#FAFAF8] py-4">
+                <p role="status" className="text-xs text-[#81796C]">{message || 'Todas as alterações serão salvas juntas.'}</p>
+                <button type="submit" disabled={saving} className="min-h-[46px] rounded-full bg-[#292621] px-7 text-sm text-white disabled:opacity-50">
+                  {saving ? 'Salvando…' : 'Salvar alterações'}
+                </button>
+              </div>
+            </form>
+          }
+          ''',
+
+              'src/app/admin/produtos/[id]/page.tsx': r'''import Link from 'next/link'
+          import { notFound } from 'next/navigation'
+          import { adminDatabase } from '@/lib/admin-auth'
+          import type { EditorBundle } from '@/lib/admin-unified'
+          import UnifiedProductEditor from './UnifiedProductEditor'
+
+          export default async function EditProduct({ params, searchParams = {} }: {
+            params: { id: string }
+            searchParams?: { salvo?: string }
+          }) {
+            const { db } = await adminDatabase()
+
+            const result = await db.rpc('serenity_admin_read_editor', {
+              p_product_id: params.id,
+            })
+
+            if (result.error) throw new Error('ADMIN_EDITOR_READ')
+            if (!result.data) notFound()
+
+            const bundle = result.data as EditorBundle
+            const url = process.env.SUPABASE_URL?.trim()
+
+            if (!url) throw new Error('ADMIN_CONFIGURATION')
+
+            return <main className="mx-auto max-w-5xl px-4 py-7 sm:px-8 md:py-10">
+              <Link href="/admin/produtos" className="text-xs text-[#81796C]">← Produtos</Link>
+              <h1 className="mb-2 mt-6 text-2xl font-medium md:text-3xl">Editar produto</h1>
+              <p className="mb-6 text-xs text-[#81796C]">{bundle.product.name}</p>
+
+              {searchParams.salvo === '1' && <p role="status" className="mb-5 rounded-2xl bg-[#EAF1E5] p-4 text-sm text-[#42603A]">Todas as alterações foram salvas.</p>}
+
+              <UnifiedProductEditor key={bundle.version} bundle={bundle} storageUrl={url} />
+            </main>
+          }
+          ''',
+
+              'src/app/admin/produtos/[id]/gerenciar/page.tsx': r'''import { redirect } from 'next/navigation'
+          import { requireAdmin } from '@/lib/admin-auth'
+
+          export default async function ProductManagement({ params }: {
+            params: { id: string }
+          }) {
+            await requireAdmin()
+            redirect(`/admin/produtos/${encodeURIComponent(params.id)}`)
+          }
+          ''',
+
+              'src/app/admin/produtos/novo/page.tsx': r'''import { randomUUID } from 'crypto'
+          import Link from 'next/link'
+          import { requireAdmin } from '@/lib/admin-auth'
+          import { emptyProduct } from '@/lib/admin-unified'
+          import UnifiedProductEditor from '../[id]/UnifiedProductEditor'
+
+          export default async function NewProductPage() {
+            await requireAdmin()
+
+            const url = process.env.SUPABASE_URL?.trim()
+
+            if (!url) throw new Error('ADMIN_CONFIGURATION')
+
+            const bundle = {
+              product: emptyProduct(randomUUID()),
+              variants: [],
+              commercial: {},
+              media: [],
+              version: '',
+            }
+
+            return <main className="mx-auto max-w-5xl px-4 py-7 sm:px-8 md:py-10">
+              <Link href="/admin/produtos" className="text-xs text-[#81796C]">← Produtos</Link>
+              <h1 className="mb-6 mt-6 text-2xl font-medium md:text-3xl">Novo produto</h1>
+              <UnifiedProductEditor bundle={bundle} storageUrl={url} isNew />
+            </main>
+          }
+          ''',
+          }
+
+          required = [
+              'src/lib/admin-auth.ts',
+              'src/lib/admin-product-editor.ts',
+              'src/lib/admin-catalog-tools.ts',
+              'src/app/admin/produtos/page.tsx',
+          ]
+
+          if not all((root / name).is_file() for name in required):
+              raise SystemExit(
+                  'Instale primeiro as etapas anteriores do painel. Nenhum arquivo foi alterado.'
+              )
+
+          for name, content in files.items():
+              target = root / name
+              target.parent.mkdir(parents=True, exist_ok=True)
+              target.write_text(content, encoding='utf-8')
+
+          print('Cadastro e edição unificados em uma tela e um salvamento.')
+          PY
+
+      - run: npm ci --ignore-scripts
+
+      - name: Conferir TypeScript
+        run: npx tsc --noEmit --incremental false
+
+      - name: Conferir lint
+        run: npx next lint --no-cache
+
+      - name: Salvar atualização
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git add src/app/admin/produtos src/lib/admin-unified.ts
+
+          if git diff --cached --quiet; then
+            echo "Editor já atualizado."
+          else
+            git commit -m "Unificar edição de produtos, variações e fotos com salvamento único"
+            git push origin HEAD:main
+          fi

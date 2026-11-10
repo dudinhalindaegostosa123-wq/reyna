@@ -1,0 +1,717 @@
+name: Transferir imagens para Supabase
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: transferir-imagens-serenity
+  cancel-in-progress: false
+
+jobs:
+  transferir:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Instalar ferramenta de imagens
+        run: python3 -m pip install Pillow
+
+      - name: Transferir fotos e registrar midias
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
+        shell: bash
+        run: |
+          python3 -u - <<'PY'
+          import csv
+          import hashlib
+          import html
+          import io
+          import json
+          import os
+          import re
+          import threading
+          import time
+          import urllib.error
+          import urllib.request
+          import uuid
+          import warnings
+          from concurrent.futures import ThreadPoolExecutor, as_completed
+          from datetime import datetime, timezone
+          from html.parser import HTMLParser
+          from urllib.parse import (
+              quote, urlencode, urljoin, urlsplit, urlunsplit,
+          )
+          from PIL import Image, ImageOps
+
+          csv.field_size_limit(20_000_000)
+          Image.MAX_IMAGE_PIXELS = 40_000_000
+          warnings.simplefilter("error", Image.DecompressionBombWarning)
+
+          BASE = os.environ["SUPABASE_URL"].strip().rstrip("/")
+          KEY = os.environ["SUPABASE_SECRET_KEY"].strip()
+          BUCKET = "produtos"
+          ROOT = "migracao-v1"
+          MANIFEST_PATH = ROOT + "/manifesto.json"
+          LIMIT = 900_000_000
+
+          parsed_base = urlsplit(BASE)
+          if (
+              parsed_base.scheme != "https"
+              or not (parsed_base.hostname or "").endswith(".supabase.co")
+              or parsed_base.path
+              or parsed_base.query
+              or parsed_base.fragment
+              or parsed_base.username
+              or not KEY.startswith("sb_secret_")
+          ):
+              raise SystemExit("Confira os Secrets do Supabase.")
+
+          class ServiceError(RuntimeError):
+              pass
+
+          def call(
+              path, method="GET", payload=None,
+              raw=None, mime="application/json",
+              extra=None, missing=False,
+          ):
+              headers = {"apikey": KEY, "Accept": "application/json"}
+              headers.update(extra or {})
+              body = raw
+
+              if payload is not None:
+                  body = json.dumps(
+                      payload, ensure_ascii=False, allow_nan=False
+                  ).encode("utf-8")
+
+              if body is not None:
+                  headers["Content-Type"] = mime
+
+              for attempt in range(4):
+                  request = urllib.request.Request(
+                      BASE + path,
+                      data=body,
+                      headers=headers,
+                      method=method,
+                  )
+                  try:
+                      with urllib.request.urlopen(
+                          request, timeout=90
+                      ) as response:
+                          data = response.read()
+                          return json.loads(data) if data else None
+
+                  except urllib.error.HTTPError as error:
+                      detail = error.read().decode(
+                          "utf-8", errors="replace"
+                      ).replace(KEY, "[chave protegida]")
+
+                      try:
+                          error_data = json.loads(detail)
+                      except ValueError:
+                          error_data = {}
+
+                      if missing and (
+                          error.code == 404
+                          or str(error_data.get("statusCode")) == "404"
+                      ):
+                          return None
+
+                      if error.code in (429, 500, 502, 503, 504) and attempt < 3:
+                          time.sleep(2 ** (attempt + 1))
+                          continue
+
+                      raise ServiceError(
+                          f"Supabase HTTP {error.code}: {detail[:600]}"
+                      )
+
+                  except urllib.error.URLError:
+                      if attempt < 3:
+                          time.sleep(2 ** (attempt + 1))
+                          continue
+                      raise ServiceError("Falha de rede no Supabase.")
+
+          def table_rows(table, columns):
+              result = []
+              offset = 0
+
+              while True:
+                  page = call(
+                      f"/rest/v1/{table}?"
+                      + urlencode({
+                          "select": columns,
+                          "order": "id.asc",
+                          "limit": 500,
+                          "offset": offset,
+                      })
+                  )
+                  result.extend(page)
+                  if len(page) < 500:
+                      return result
+                  offset += len(page)
+
+          def upsert(table, rows, conflict="id"):
+              for offset in range(0, len(rows), 100):
+                  call(
+                      f"/rest/v1/{table}?on_conflict={conflict}",
+                      method="POST",
+                      payload=rows[offset:offset + 100],
+                      extra={
+                          "Prefer":
+                          "resolution=merge-duplicates,return=minimal"
+                      },
+                  )
+
+          # Consulta o espaço já utilizado no bucket.
+          stored_sizes = {}
+          prefixes = [""]
+
+          while prefixes:
+              prefix = prefixes.pop()
+              offset = 0
+
+              while True:
+                  objects = call(
+                      f"/storage/v1/object/list/{BUCKET}",
+                      method="POST",
+                      payload={
+                          "prefix": prefix,
+                          "limit": 500,
+                          "offset": offset,
+                          "sortBy": {"column": "name", "order": "asc"},
+                      },
+                  )
+
+                  for obj in objects:
+                      name = obj.get("name") or ""
+                      if not name:
+                          continue
+
+                      path = prefix + name
+                      if obj.get("id") is None:
+                          prefixes.append(path.rstrip("/") + "/")
+                      else:
+                          metadata = obj.get("metadata") or {}
+                          stored_sizes[path] = int(metadata.get("size") or 0)
+
+                  if len(objects) < 500:
+                      break
+                  offset += len(objects)
+
+          used_bytes = sum(stored_sizes.values())
+          budget_lock = threading.Lock()
+
+          print(
+              "Espaço inicial no bucket:",
+              round(used_bytes / 1_000_000, 1), "MB",
+              flush=True,
+          )
+
+          def upload(path, data, mime, mutable=False):
+              global used_bytes
+
+              with budget_lock:
+                  previous = stored_sizes.get(path, 0)
+                  increase = max(0, len(data) - previous)
+
+                  if used_bytes + increase > LIMIT:
+                      raise ServiceError(
+                          "Transferência interrompida para preservar "
+                          "a margem de armazenamento de 900 MB."
+                      )
+
+                  used_bytes += increase
+                  stored_sizes[path] = max(previous, len(data))
+
+              call(
+                  f"/storage/v1/object/{BUCKET}/"
+                  + quote(path, safe="/"),
+                  method="POST",
+                  raw=data,
+                  mime=mime,
+                  extra={
+                      "x-upsert": "true",
+                      "Cache-Control": (
+                          "max-age=60" if mutable
+                          else "max-age=31536000, immutable"
+                      ),
+                  },
+              )
+
+          manifest = call(
+              f"/storage/v1/object/public/{BUCKET}/"
+              + MANIFEST_PATH,
+              missing=True,
+          ) or {"version": 1, "images": {}}
+
+          if manifest.get("version") != 1:
+              raise SystemExit("Versão de manifesto não reconhecida.")
+
+          assets = manifest.setdefault("images", {})
+
+          def checkpoint():
+              manifest["updated_at"] = datetime.now(
+                  timezone.utc
+              ).isoformat()
+
+              upload(
+                  MANIFEST_PATH,
+                  json.dumps(
+                      manifest, ensure_ascii=False
+                  ).encode("utf-8"),
+                  "application/json",
+                  mutable=True,
+              )
+
+          products = {
+              int(row["woo_id"]): row
+              for row in table_rows(
+                  "products", "id,woo_id,name"
+              )
+              if row["woo_id"] is not None
+          }
+
+          variants = {
+              int(row["woo_id"]): row
+              for row in table_rows(
+                  "product_variants", "id,woo_id,product_id"
+              )
+              if row["woo_id"] is not None
+          }
+
+          with open(
+              "produtos.csv", encoding="utf-8-sig", newline=""
+          ) as file:
+              rows = list(csv.DictReader(file))
+
+          references = {}
+          all_urls = set()
+          video_media = {}
+
+          def normalize(value):
+              value = html.unescape(
+                  (value or "").strip().replace("\\,", ",")
+              )
+              if not value or value.startswith(("data:", "blob:")):
+                  return None
+
+              parts = urlsplit(urljoin(
+                  "https://serenitypiercings.com.br/", value
+              ))
+              if parts.scheme not in ("http", "https"):
+                  return None
+
+              return urlunsplit((
+                  parts.scheme,
+                  parts.netloc,
+                  quote(parts.path, safe="/%:@!$&'()*+,;=-._~"),
+                  parts.query,
+                  "",
+              ))
+
+          def add_image(value):
+              url = normalize(value)
+              if url:
+                  all_urls.add(url)
+              return url
+
+          def youtube_id(value):
+              try:
+                  parsed = urlsplit(html.unescape(value or ""))
+                  host = (parsed.hostname or "").replace("www.", "")
+                  parts = parsed.path.strip("/").split("/")
+                  result = None
+
+                  if host == "youtu.be":
+                      result = parts[0]
+                  elif host in (
+                      "youtube.com", "m.youtube.com",
+                      "youtube-nocookie.com",
+                  ):
+                      from urllib.parse import parse_qs
+                      result = parse_qs(parsed.query).get("v", [None])[0]
+                      if not result and parts[0] in ("shorts", "embed"):
+                          result = parts[1] if len(parts) > 1 else None
+
+                  if result and re.fullmatch(r"[A-Za-z0-9_-]{11}", result):
+                      return result
+              except (ValueError, IndexError):
+                  pass
+              return None
+
+          def media_id(product_id, variant_id, kind, source):
+              return str(uuid.uuid5(
+                  uuid.NAMESPACE_URL,
+                  f"serenity:{product_id}:{variant_id or ''}:{kind}:{source}",
+              ))
+
+          def add_video(value, product_id, variant_id, name):
+              video_id = youtube_id(value)
+              if not video_id:
+                  return
+
+              identifier = media_id(
+                  product_id, variant_id, "youtube", video_id
+              )
+              video_media[identifier] = {
+                  "id": identifier,
+                  "product_id": product_id,
+                  "variant_id": variant_id,
+                  "media_type": "youtube",
+                  "storage_path": None,
+                  "original_path": None,
+                  "thumbnail_path": None,
+                  "source_url": value,
+                  "youtube_id": video_id,
+                  "alt_text": name,
+                  "position": 10000,
+              }
+
+          for row in rows:
+              woo_id = int(row["ID"])
+              name = row.get("Nome") or ""
+
+              if woo_id in products:
+                  product_id = products[woo_id]["id"]
+                  variant_id = None
+              elif woo_id in variants:
+                  product_id = variants[woo_id]["product_id"]
+                  variant_id = variants[woo_id]["id"]
+              else:
+                  raise SystemExit(
+                      f"Registro {woo_id} ainda não está no Supabase."
+                  )
+
+              gallery = (row.get("Imagens") or "").strip()
+              gallery_urls = []
+
+              if gallery:
+                  for value in re.split(
+                      r"(?<!\\),\s*(?=https?://)", gallery
+                  ):
+                      url = add_image(value)
+                      if url and url not in gallery_urls:
+                          gallery_urls.append(url)
+
+              for position, url in enumerate(gallery_urls):
+                  references.setdefault(url, []).append({
+                      "product_id": product_id,
+                      "variant_id": variant_id,
+                      "name": name,
+                      "position": position,
+                  })
+
+              class DescriptionMedia(HTMLParser):
+                  def handle_starttag(self, tag, attrs):
+                      values = dict(attrs)
+
+                      if tag.lower() == "img":
+                          for field in ("src", "data-src", "data-lazy-src"):
+                              add_image(values.get(field))
+
+                      if tag.lower() == "iframe":
+                          add_video(
+                              values.get("src") or "",
+                              product_id, variant_id, name,
+                          )
+
+              for field in ("Descrição", "Descrição curta"):
+                  parser = DescriptionMedia()
+                  parser.feed(row.get(field) or "")
+                  parser.close()
+
+              placeholder = (
+                  row.get(
+                      "Metadado: _jet_woo_product_video_placeholder"
+                  ) or ""
+              ).strip()
+              if placeholder.startswith(("http://", "https://")):
+                  add_image(placeholder)
+
+              add_video(
+                  row.get(
+                      "Metadado: _jet_woo_product_youtube_video_url"
+                  ) or "",
+                  product_id, variant_id, name,
+              )
+
+          if not all_urls:
+              raise SystemExit("Nenhuma imagem encontrada.")
+
+          print("URLs a processar:", len(all_urls), flush=True)
+
+          def download(url):
+              for attempt in range(3):
+                  try:
+                      request = urllib.request.Request(
+                          url,
+                          headers={
+                              "User-Agent": "SerenityMigration/1.0",
+                              "Accept": "image/*",
+                          },
+                      )
+                      with urllib.request.urlopen(
+                          request, timeout=40
+                      ) as response:
+                          data = response.read(25_000_001)
+
+                      if not data or len(data) > 25_000_000:
+                          raise ValueError("Tamanho de imagem inválido.")
+
+                      return data
+
+                  except urllib.error.HTTPError as error:
+                      if error.code == 404:
+                          raise ValueError("HTTP 404: arquivo ausente.")
+                      if attempt == 2:
+                          raise ValueError(f"HTTP {error.code}")
+                      time.sleep(2 ** attempt)
+
+                  except urllib.error.URLError:
+                      if attempt == 2:
+                          raise ValueError("Falha ao baixar a imagem.")
+                      time.sleep(2 ** attempt)
+
+          def make_webp(image, maximum, quality, profile):
+              resized = image.copy()
+              resized.thumbnail(
+                  (maximum, maximum), Image.Resampling.LANCZOS
+              )
+              output = io.BytesIO()
+              options = {
+                  "format": "WEBP", "quality": quality, "method": 4,
+              }
+              if profile:
+                  options["icc_profile"] = profile
+              resized.save(output, **options)
+              resized.close()
+              return output.getvalue()
+
+          def transfer(url):
+              cached = assets.get(url)
+
+              if cached and all(
+                  cached.get(field) in stored_sizes
+                  for field in (
+                      "storage_path", "original_path", "thumbnail_path"
+                  )
+              ):
+                  return {"url": url, "asset": cached, "reused": True}
+
+              try:
+                  original_data = download(url)
+                  digest = hashlib.sha256(original_data).hexdigest()
+
+                  with Image.open(io.BytesIO(original_data)) as original:
+                      if getattr(original, "is_animated", False):
+                          raise ValueError(
+                              "Imagem animada: requer tratamento separado."
+                          )
+
+                      image_format = (original.format or "").upper()
+                      extension = {
+                          "JPEG": "jpg", "PNG": "png",
+                          "WEBP": "webp", "GIF": "gif",
+                          "AVIF": "avif", "TIFF": "tif", "BMP": "bmp",
+                      }.get(image_format, "img")
+                      original_mime = Image.MIME.get(
+                          image_format, "application/octet-stream"
+                      )
+
+                      profile = original.info.get("icc_profile")
+                      oriented = ImageOps.exif_transpose(original)
+                      transparent = (
+                          "A" in oriented.getbands()
+                          or "transparency" in oriented.info
+                      )
+                      image = oriented.convert(
+                          "RGBA" if transparent else "RGB"
+                      )
+
+                      gallery = make_webp(image, 1600, 86, profile)
+                      thumbnail = make_webp(image, 480, 82, profile)
+
+                      image.close()
+                      oriented.close()
+
+                  original_path = f"{ROOT}/originais/{digest}.{extension}"
+                  gallery_path = f"{ROOT}/galeria/{digest}.webp"
+                  thumbnail_path = f"{ROOT}/miniaturas/{digest}.webp"
+
+                  upload(original_path, original_data, original_mime)
+                  upload(gallery_path, gallery, "image/webp")
+                  upload(thumbnail_path, thumbnail, "image/webp")
+
+                  return {
+                      "url": url,
+                      "reused": False,
+                      "asset": {
+                          "storage_path": gallery_path,
+                          "original_path": original_path,
+                          "thumbnail_path": thumbnail_path,
+                          "original_bytes": len(original_data),
+                          "gallery_bytes": len(gallery),
+                          "thumbnail_bytes": len(thumbnail),
+                      },
+                  }
+
+              except ServiceError:
+                  raise
+              except Exception as error:
+                  return {
+                      "url": url,
+                      "error": str(error)[:400],
+                  }
+
+          failures = []
+          completed = 0
+          success_count = 0
+          reused_count = 0
+
+          executor = ThreadPoolExecutor(max_workers=3)
+          futures = [
+              executor.submit(transfer, url)
+              for url in sorted(all_urls)
+          ]
+
+          try:
+              for future in as_completed(futures):
+                  result = future.result()
+                  completed += 1
+
+                  if "asset" in result:
+                      assets[result["url"]] = result["asset"]
+                      success_count += 1
+                      reused_count += int(result["reused"])
+                  else:
+                      failures.append({
+                          "source_url": result["url"],
+                          "error_message": result["error"],
+                          "last_attempt_at": datetime.now(
+                              timezone.utc
+                          ).isoformat(),
+                      })
+                      print(
+                          "Pendente:", result["url"], result["error"],
+                          flush=True,
+                      )
+
+                  if completed % 25 == 0:
+                      print(
+                          f"Progresso: {completed}/{len(all_urls)}",
+                          flush=True,
+                      )
+
+                  if completed % 50 == 0:
+                      checkpoint()
+
+          except BaseException:
+              for future in futures:
+                  future.cancel()
+              executor.shutdown(wait=True, cancel_futures=True)
+              checkpoint()
+              raise
+          else:
+              executor.shutdown(wait=True)
+
+          checkpoint()
+
+          media_rows = {}
+
+          for url, refs in references.items():
+              asset = assets.get(url)
+              if not asset:
+                  continue
+
+              for ref in refs:
+                  identifier = media_id(
+                      ref["product_id"], ref["variant_id"], "image", url
+                  )
+                  media_rows[identifier] = {
+                      "id": identifier,
+                      "product_id": ref["product_id"],
+                      "variant_id": ref["variant_id"],
+                      "media_type": "image",
+                      "storage_path": asset["storage_path"],
+                      "original_path": asset["original_path"],
+                      "thumbnail_path": asset["thumbnail_path"],
+                      "source_url": url,
+                      "youtube_id": None,
+                      "alt_text": ref["name"],
+                      "position": ref["position"],
+                  }
+
+          upsert("product_media", list(media_rows.values()))
+          upsert("product_media", list(video_media.values()))
+
+          if failures:
+              upsert(
+                  "media_import_failures",
+                  failures,
+                  conflict="source_url",
+              )
+
+          # Remove pendências antigas que foram recuperadas nesta execução.
+          old_failures = call(
+              "/rest/v1/media_import_failures?select=source_url&limit=1000"
+          )
+          failed_urls = {item["source_url"] for item in failures}
+
+          for item in old_failures:
+              source = item["source_url"]
+              if source in all_urls and source in assets and source not in failed_urls:
+                  call(
+                      "/rest/v1/media_import_failures?"
+                      + urlencode({"source_url": "eq." + source}),
+                      method="DELETE",
+                  )
+
+          current_assets = [
+              assets[url]
+              for url in all_urls
+              if url in assets and url not in failed_urls
+          ]
+
+          unique_files = {}
+          for asset in current_assets:
+              for path_field, size_field in (
+                  ("original_path", "original_bytes"),
+                  ("storage_path", "gallery_bytes"),
+                  ("thumbnail_path", "thumbnail_bytes"),
+              ):
+                  unique_files[asset[path_field]] = asset[size_field]
+
+          total_bytes = sum(unique_files.values())
+
+          summary = "\n".join([
+              "# Transferência de imagens",
+              "",
+              f"- URLs encontradas: **{len(all_urls)}**",
+              f"- URLs com arquivos disponíveis: **{success_count}**",
+              f"- Reaproveitadas do ponto de retomada: **{reused_count}**",
+              f"- URLs pendentes: **{len(failures)}**",
+              f"- Arquivos únicos, incluindo originais: **{len(unique_files)}**",
+              f"- Tamanho desses arquivos: **{total_bytes / 1_000_000:.1f} MB**",
+              f"- Associações de fotos aos produtos/variações: **{len(media_rows)}**",
+              f"- Referências de vídeos do YouTube: **{len(video_media)}**",
+              "",
+              "Originais, galerias e miniaturas foram guardados no Supabase.",
+              "As imagens das descrições também estão no manifesto da migração.",
+              "As pendências foram registradas na tabela media_import_failures.",
+              "Vídeos do YouTube foram vinculados; seus arquivos continuam no YouTube.",
+              "A loja ainda precisa ser conectada ao catálogo completo do Supabase.",
+          ])
+
+          with open(
+              os.environ["GITHUB_STEP_SUMMARY"], "w", encoding="utf-8"
+          ) as file:
+              file.write(summary)
+
+          print(summary, flush=True)
+          PY

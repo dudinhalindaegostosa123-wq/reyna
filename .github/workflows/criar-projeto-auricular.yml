@@ -1,0 +1,560 @@
+name: Criar projeto auricular
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: criar-projeto-auricular
+  cancel-in-progress: false
+
+jobs:
+  preparar:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Baixar o projeto
+        uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Preparar Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Criar o montador e adicionar chamada na home
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          import textwrap
+
+          home_path = Path("src/app/page.tsx")
+          home = home_path.read_text(encoding="utf-8")
+          cta = r'''<section data-ear-project-entry className="border-y border-[#E8E1D6] bg-[#F1EBE1]">
+            <div className="mx-auto grid max-w-7xl items-center gap-8 px-6 py-12 md:grid-cols-2 md:px-10 md:py-16">
+              <div>
+                <p className="mb-3 text-[10px] uppercase tracking-[0.3em] text-[#82786A]">Uma composição sua</p>
+                <h2 className="font-display text-4xl font-light leading-tight md:text-5xl">Monte seu projeto auricular</h2>
+                <p className="mt-5 max-w-md text-sm leading-relaxed text-[#6B6B6B]">Escolha os pontos, as cores e os estilos. Descubra sugestões de joias e converse com nossa equipe sobre sua composição.</p>
+                <Link href="/projeto-auricular" prefetch={false} className="mt-7 inline-block bg-[#25231F] px-6 py-4 text-[11px] uppercase tracking-[0.15em] text-white">Começar meu projeto</Link>
+              </div>
+              <div aria-hidden="true" className="flex items-center justify-center gap-3 md:gap-5">
+                {['helix', 'conch', 'tragus'].map((name, index) => (
+                  <div key={name} className={`relative aspect-square w-[29%] max-w-[150px] overflow-hidden rounded-full border-4 border-[#FAFAF8] ${index === 1 ? 'mt-10' : ''}`}>
+                    <Image src={`/banners/${name}.webp`} alt="" fill sizes="150px" className="object-cover" />
+                  </div>
+                ))}
+              </div>
+            </div>
+          </section>'''
+          if 'data-ear-project-entry' not in home:
+              match = re.search(r'(?m)^([ \t]*)<CategoryBanners\b[^\n]*/>[ \t]*$', home)
+              if not match:
+                  raise SystemExit("Não encontrei a seção CategoryBanners na home. Nenhum arquivo foi alterado.")
+              if not re.search(r"import\s+Link\s+from\s+['\"]next/link['\"]", home):
+                  raise SystemExit("Não encontrei o import de Link na home. Nenhum arquivo foi alterado.")
+              entry = textwrap.indent(textwrap.dedent(cta).strip(), match.group(1))
+              home = home[:match.start()] + entry + "\n\n" + home[match.start():]
+
+          files = {
+              "src/lib/ear-project.ts": r'''export const REGIONS = [
+            { id: 'helix', name: 'Hélix', x: 82, y: 29 },
+            { id: 'flat', name: 'Flat', x: 54, y: 27 },
+            { id: 'conch', name: 'Conch', x: 60, y: 54 },
+            { id: 'daith', name: 'Daith', x: 40, y: 43 },
+            { id: 'tragus', name: 'Tragus', x: 29, y: 59 },
+            { id: 'lobulo', name: 'Lóbulo', x: 52, y: 82 },
+            { id: 'transversal', name: 'Transversal', x: 53, y: 16 },
+          ] as const
+
+          export const COLORS = {
+            livre: 'Sem preferência',
+            dourado: 'Dourado',
+            prateado: 'Prateado',
+          } as const
+
+          export const TYPES = {
+            livre: 'Todos os tipos',
+            argola: 'Argola',
+            topo: 'Topo',
+            pingente: 'Pingente',
+            'ponto-de-luz': 'Ponto de luz',
+          } as const
+
+          export const DETAILS = {
+            livre: 'Sem preferência',
+            cristais: 'Cristais e brilho',
+            'pedras-naturais': 'Pedras naturais',
+            swarovski: 'Swarovski',
+          } as const
+
+          export type RegionId = typeof REGIONS[number]['id']
+          export type Color = keyof typeof COLORS
+          export type JewelType = keyof typeof TYPES
+          export type Detail = keyof typeof DETAILS
+
+          export interface ProjectProduct {
+            id: string
+            slug: string
+            name: string
+            image: string
+            price: number
+            variable: boolean
+          }
+
+          export interface Choice {
+            color: Color
+            type: JewelType
+            detail: Detail
+            intention: 'tenho' | 'quero'
+            product: ProjectProduct | null
+          }
+
+          export type Choices = Partial<Record<RegionId, Choice>>
+
+          export function newChoice(): Choice {
+            return {
+              color: 'livre',
+              type: 'livre',
+              detail: 'livre',
+              intention: 'quero',
+              product: null,
+            }
+          }
+
+          export function suggestionUrl(region: RegionId, choice: Choice): string {
+            const query = new URLSearchParams({
+              region,
+              color: choice.color,
+              type: choice.type,
+              detail: choice.detail,
+            })
+            return `/api/projeto-auricular?${query}`
+          }
+
+          export function projectMessage(
+            choices: Choices,
+            side: string,
+            notes: string,
+            origin: string
+          ): string {
+            const lines = [
+              'Olá! Montei minhas preferências para um projeto auricular na Serenity.',
+              `Orelha: ${side}.`,
+              '',
+            ]
+
+            REGIONS.forEach((region) => {
+              const choice = choices[region.id]
+              if (!choice) return
+              lines.push(
+                `${region.name} — ${choice.intention === 'tenho' ? 'Já tenho o furo' : 'Tenho interesse em perfurar'}`,
+                `Cor: ${COLORS[choice.color]}. Tipo: ${TYPES[choice.type]}. Estilo: ${DETAILS[choice.detail]}.`
+              )
+              if (choice.product) {
+                lines.push(
+                  `Joia de interesse: ${choice.product.name}`,
+                  `${origin}/produto/${encodeURIComponent(choice.product.slug)}`
+                )
+              } else {
+                lines.push('Gostaria de ajuda para escolher a joia.')
+              }
+              lines.push('')
+            })
+
+            if (notes.trim()) lines.push(`Observações: ${notes.trim()}`, '')
+            lines.push('Quero confirmar com a equipe a anatomia, as medidas, os encaixes e a disponibilidade das peças.')
+            return lines.join('\n')
+          }
+          ''',
+              "src/app/api/projeto-auricular/route.ts": r'''import { NextRequest, NextResponse } from 'next/server'
+          import { REGIONS, COLORS, TYPES, DETAILS } from '@/lib/ear-project'
+
+          export const dynamic = 'force-dynamic'
+
+          interface Row {
+            id: string
+            slug: string
+            name: string
+            price: number | null
+            product_type: string
+            storage_path: string | null
+            thumbnail_path: string | null
+          }
+
+          export async function GET(request: NextRequest) {
+            const params = request.nextUrl.searchParams
+            const region = params.get('region') || ''
+            const color = params.get('color') || 'livre'
+            const type = params.get('type') || 'livre'
+            const detail = params.get('detail') || 'livre'
+
+            if (
+              !REGIONS.some((item) => item.id === region) ||
+              !Object.prototype.hasOwnProperty.call(COLORS, color) ||
+              !Object.prototype.hasOwnProperty.call(TYPES, type) ||
+              !Object.prototype.hasOwnProperty.call(DETAILS, detail)
+            ) {
+              return NextResponse.json({ error: 'Seleção inválida.' }, { status: 400 })
+            }
+
+            const url = process.env.SUPABASE_URL?.trim().replace(/\/$/, '')
+            const key = process.env.SUPABASE_PUBLISHABLE_KEY?.trim()
+            if (!url || !key) {
+              return NextResponse.json({ error: 'Catálogo indisponível no momento.' }, { status: 503 })
+            }
+
+            const query = new URLSearchParams({
+              select: 'id,slug,name,price,product_type,storage_path,thumbnail_path',
+              visibility: 'in.(visible,catalog)',
+              product_type: 'in.(simple,variable)',
+              in_stock: 'eq.true',
+              price_available: 'eq.true',
+              storage_path: 'not.is.null',
+              order: 'featured.desc,created_at.desc,database_id.asc',
+              limit: '12',
+            })
+
+            const aliases = region === 'transversal'
+              ? ['transversal', 'industrial']
+              : region === 'lobulo' ? ['lobulo', 'lobulos'] : [region]
+
+            const filters = [
+              `or(${aliases.map((alias) => `category_slugs.cs.{${alias}}`).join(',')})`,
+            ]
+
+            function names(words: string[]) {
+              return `or(${words.map((word) => `name.ilike.*${word}*`).join(',')})`
+            }
+
+            if (color === 'dourado') {
+              filters.push('or(name.ilike.*ouro*,name.ilike.*gold*,name.ilike.*dourad*)')
+            } else if (color === 'prateado') {
+              filters.push('or(name.ilike.*pratead*,name.ilike.*prata*,name.ilike.*titânio*,name.ilike.*titanio*)')
+              ;['ouro', 'gold', 'dourad', 'black', 'pret', 'anodiz', 'revestid'].forEach((word) => {
+                filters.push(`name.not.ilike.*${word}*`)
+              })
+            }
+
+            if (type === 'argola') filters.push(names(['argola', 'clicker']))
+            if (type === 'topo') filters.push(names(['topo', 'labret', 'stud']))
+            if (type === 'pingente') filters.push(names(['pingente', 'pendente', 'corrente']))
+            if (type === 'ponto-de-luz') filters.push(names(['ponto de luz', 'solitário', 'solitario', 'cristal redondo', 'esfera cravejada']))
+            if (detail === 'cristais') filters.push(names(['cravejad', 'cristal', 'cristais', 'zircônia', 'zirconia', 'swarovski']))
+            if (detail === 'pedras-naturais') filters.push(names(['natural', 'naturais', 'abalone', 'turquesa', 'ametista']))
+            if (detail === 'swarovski') filters.push(names(['swarovski']))
+
+            query.set('and', `(${filters.join(',')})`)
+
+            try {
+              const response = await fetch(`${url}/rest/v1/store_catalog?${query}`, {
+                headers: { apikey: key },
+                next: { revalidate: 60, tags: ['catalog'] },
+                signal: AbortSignal.timeout(12000),
+              })
+              if (!response.ok) throw new Error(`Catálogo: ${response.status}`)
+              const rows: Row[] = await response.json()
+              if (!Array.isArray(rows)) throw new Error('Resposta inválida.')
+
+              return NextResponse.json({
+                products: rows.map((row) => ({
+                  id: row.id,
+                  slug: row.slug,
+                  name: row.name,
+                  price: Number(row.price ?? 0),
+                  variable: row.product_type === 'variable',
+                  image: `${url}/storage/v1/object/public/produtos/${
+                    (row.thumbnail_path || row.storage_path || '').split('/').map(encodeURIComponent).join('/')
+                  }`,
+                })),
+              })
+            } catch (error) {
+              console.error('Sugestões do projeto auricular:', error instanceof Error ? error.message : 'Falha')
+              return NextResponse.json({ error: 'Não foi possível carregar as joias. Tente novamente.' }, { status: 502 })
+            }
+          }
+          ''',
+              "src/app/projeto-auricular/page.tsx": r'''import type { Metadata } from 'next'
+          import EarProjectClient from './EarProjectClient'
+
+          export const metadata: Metadata = {
+            title: 'Monte seu projeto auricular',
+            description: 'Escolha regiões, cores e estilos e monte suas preferências com joias da Serenity.',
+          }
+
+          export default function EarProjectPage() {
+            return <EarProjectClient whatsapp="5515981679400" />
+          }
+          ''',
+              "src/app/projeto-auricular/EarProjectClient.tsx": r''''use client'
+
+          import { useEffect, useState } from 'react'
+          import Image from 'next/image'
+          import Link from 'next/link'
+          import {
+            REGIONS, COLORS, TYPES, DETAILS, newChoice,
+            suggestionUrl, projectMessage,
+          } from '@/lib/ear-project'
+          import type {
+            RegionId, Color, JewelType, Detail, Choice, Choices, ProjectProduct,
+          } from '@/lib/ear-project'
+
+          const money = (value: number) => new Intl.NumberFormat('pt-BR', {
+            style: 'currency', currency: 'BRL',
+          }).format(value)
+
+          async function fetchSuggestions(region: RegionId, choice: Choice, signal?: AbortSignal): Promise<ProjectProduct[]> {
+            const response = await fetch(suggestionUrl(region, choice), { signal })
+            if (!response.ok) throw new Error('Não foi possível carregar as joias. Tente novamente.')
+            const data = await response.json()
+            if (!Array.isArray(data.products)) throw new Error('Resposta inesperada do catálogo.')
+            return data.products
+          }
+
+          function EarIllustration({ mirrored }: { mirrored: boolean }) {
+            return (
+              <svg viewBox="0 0 320 400" className="h-full w-full" aria-hidden="true" style={{ transform: mirrored ? 'scaleX(-1)' : undefined }}>
+                <path d="M169 28C100 21 65 67 72 136C77 162 69 188 69 213C68 250 91 262 109 281C119 292 113 315 130 340C150 373 194 367 217 335C233 312 227 288 249 256C280 211 291 148 274 90C259 42 217 18 169 28Z" fill="#E9D3BA" stroke="#B99A78" strokeWidth="2" />
+                <path d="M106 142C99 104 119 66 161 57C214 46 253 86 253 139C255 190 232 240 219 258C205 282 205 319 183 328C160 337 143 317 141 297C141 263 119 248 108 232" fill="none" stroke="#B99A78" strokeWidth="3" strokeLinecap="round" />
+                <path d="M116 151C163 111 213 128 214 171C217 197 188 230 159 246" fill="none" stroke="#B99A78" strokeWidth="3" strokeLinecap="round" />
+                <path d="M137 175C153 160 181 164 184 185C188 207 165 225 151 231C138 236 126 226 127 212" fill="#D8B895" stroke="#B99A78" strokeWidth="2" />
+                <path d="M101 220C125 204 137 226 126 244C116 260 99 250 96 239" fill="#E9D3BA" stroke="#B99A78" strokeWidth="2" strokeLinecap="round" />
+              </svg>
+            )
+          }
+
+          export default function EarProjectClient({ whatsapp }: { whatsapp: string }) {
+            const [choices, setChoices] = useState<Choices>({})
+            const [active, setActive] = useState<RegionId>('helix')
+            const [side, setSide] = useState('Direita')
+            const [notes, setNotes] = useState('')
+            const [products, setProducts] = useState<ProjectProduct[]>([])
+            const [loading, setLoading] = useState(false)
+            const [building, setBuilding] = useState(false)
+            const [error, setError] = useState('')
+            const [status, setStatus] = useState('')
+            const [retry, setRetry] = useState(0)
+
+            const choice = choices[active]
+            const selected = Boolean(choice)
+            const color = choice?.color || 'livre'
+            const type = choice?.type || 'livre'
+            const detail = choice?.detail || 'livre'
+            const regionName = REGIONS.find((region) => region.id === active)!.name
+            const selectedRegions = REGIONS.filter((region) => choices[region.id])
+
+            useEffect(() => {
+              setProducts([])
+              setError('')
+              if (!selected) {
+                setLoading(false)
+                return
+              }
+              const controller = new AbortController()
+              setLoading(true)
+              fetchSuggestions(active, { ...newChoice(), color, type, detail }, controller.signal)
+                .then((items) => {
+                  if (!controller.signal.aborted) setProducts(items)
+                })
+                .catch((reason) => {
+                  if (!controller.signal.aborted) {
+                    setError(reason instanceof Error ? reason.message : 'Não foi possível carregar as joias.')
+                  }
+                })
+                .finally(() => {
+                  if (!controller.signal.aborted) setLoading(false)
+                })
+              return () => controller.abort()
+            }, [active, color, type, detail, selected, retry])
+
+            function selectRegion(id: RegionId) {
+              if (building) return
+              setChoices((current) => ({ ...current, [id]: current[id] || newChoice() }))
+              setActive(id)
+              setStatus('')
+            }
+
+            function update(patch: Partial<Omit<Choice, 'product'>>) {
+              setChoices((current) => {
+                const old = current[active]
+                if (!old) return current
+                const clear = 'color' in patch || 'type' in patch || 'detail' in patch
+                return { ...current, [active]: { ...old, ...patch, product: clear ? null : old.product } }
+              })
+              setStatus('')
+            }
+
+            function useProduct(product: ProjectProduct | null) {
+              setChoices((current) => current[active]
+                ? { ...current, [active]: { ...current[active]!, product } }
+                : current)
+              setStatus('')
+            }
+
+            function removeRegion() {
+              const next = { ...choices }
+              delete next[active]
+              setChoices(next)
+              const remaining = REGIONS.find((region) => next[region.id])
+              setActive(remaining?.id || 'helix')
+              setStatus('')
+            }
+
+            async function buildProject() {
+              if (!selectedRegions.length || building) return
+              setBuilding(true)
+              setStatus('Buscando sugestões para seu projeto…')
+              const snapshot = { ...choices }
+              const results = await Promise.allSettled(selectedRegions.map(async (region) => ({
+                id: region.id,
+                products: await fetchSuggestions(region.id, snapshot[region.id]!),
+              })))
+              const used = new Set<string>()
+              let found = 0
+              let failed = 0
+              results.forEach((result) => {
+                if (result.status === 'rejected') { failed += 1; return }
+                const { id, products: suggestions } = result.value
+                const product = suggestions.find((item) => !used.has(item.id)) || suggestions[0] || null
+                if (product) { used.add(product.id); found += 1 }
+                snapshot[id] = { ...snapshot[id]!, product }
+              })
+              setChoices(snapshot)
+              setBuilding(false)
+              setStatus(`${found} de ${selectedRegions.length} regiões receberam sugestões.${failed ? ' Algumas consultas falharam; tente novamente ou peça ajuda à equipe.' : ' Você pode trocar as peças ou pedir ajuda à equipe nas regiões sem resultado.'}`)
+            }
+
+            function openWhatsapp() {
+              if (!selectedRegions.length || building) return
+              const text = projectMessage(choices, side, notes, window.location.origin)
+              window.open(`https://wa.me/${whatsapp}?text=${encodeURIComponent(text)}`, '_blank', 'noopener,noreferrer')
+            }
+
+            const field = 'mt-2 w-full rounded-none border border-[#DCD5CA] bg-white px-3 py-3 text-sm outline-none focus:border-[#9C815A]'
+
+            return (
+              <div className="min-h-screen bg-[#FAFAF8] text-[#25231F]">
+                <div className="mx-auto max-w-7xl px-4 py-8 md:px-10 md:py-14">
+                  <Link href="/orelha" className="text-xs text-[#77736C] hover:text-black">← Explorar orelha</Link>
+                  <p className="mb-3 mt-9 text-[10px] uppercase tracking-[0.3em] text-[#82786A]">Uma composição sua</p>
+                  <h1 className="max-w-3xl font-display text-4xl font-light leading-tight md:text-6xl">Monte seu projeto auricular</h1>
+                  <p className="mt-4 max-w-2xl text-sm leading-relaxed text-[#6B6B6B]">Escolha as regiões, personalize cada detalhe e descubra joias para sua composição.</p>
+
+                  <fieldset disabled={building} className="mt-10 min-w-0">
+                    <legend className="sr-only">Personalização do projeto auricular</legend>
+                    <div className="grid gap-8 lg:grid-cols-[0.9fr_1.1fr]">
+                      <section aria-labelledby="ear-map-title" className="self-start border border-[#E8E1D6] bg-[#F1EBE1] p-5 md:p-8 lg:sticky lg:top-28">
+                        <div className="flex flex-wrap items-center justify-between gap-4">
+                          <h2 id="ear-map-title" className="text-xs uppercase tracking-[0.16em]">1. Escolha os pontos</h2>
+                          <label className="text-xs">Orelha
+                            <select value={side} onChange={(event) => setSide(event.target.value)} className="ml-2 border border-[#DCD5CA] bg-white p-2">
+                              <option>Direita</option><option>Esquerda</option>
+                            </select>
+                          </label>
+                        </div>
+                        <div className="relative mx-auto mt-4 aspect-[4/5] w-full max-w-[380px]">
+                          <EarIllustration mirrored={side === 'Esquerda'} />
+                          {REGIONS.map((region, index) => {
+                            const item = choices[region.id]
+                            const isActive = active === region.id && Boolean(item)
+                            return (
+                              <button key={region.id} type="button" onClick={() => selectRegion(region.id)} aria-pressed={Boolean(item)} aria-label={`${region.name}${item ? ', selecionado. Editar' : ', adicionar'}`} title={region.name}
+                                style={{ left: `${side === 'Esquerda' ? 100 - region.x : region.x}%`, top: `${region.y}%` }}
+                                className={`absolute flex h-11 w-11 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border-2 shadow-sm transition-shadow focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-black ${isActive ? 'z-20 border-[#25231F] ring-4 ring-[#B8986A]/35' : 'z-10 border-white'} ${item ? 'bg-[#A68A60] text-white' : 'bg-white/90 text-[#40392E]'}`}>
+                                {item?.product ? <Image src={item.product.image} alt="" fill sizes="44px" className="rounded-full object-cover" /> : <span className="text-sm font-medium">{index + 1}</span>}
+                              </button>
+                            )
+                          })}
+                        </div>
+                        <div className="mt-4 flex flex-wrap gap-2">
+                          {REGIONS.map((region, index) => <button type="button" key={region.id} onClick={() => selectRegion(region.id)} aria-pressed={Boolean(choices[region.id])} className={`border px-3 py-2 text-[11px] ${choices[region.id] ? 'border-[#A68A60] bg-white' : 'border-[#D8CEBF] text-[#77736C]'}`}>{index + 1}. {region.name}</button>)}
+                        </div>
+                        <p className="mt-5 text-[11px] leading-relaxed text-[#77736C]">Ilustração com pontos indicativos. As fotos das peças escolhidas aparecem como miniaturas; não representam tamanho ou encaixe reais.</p>
+                      </section>
+
+                      <section aria-labelledby="preferences-title" className="min-w-0">
+                        <h2 id="preferences-title" className="font-display text-3xl font-light">2. Personalize {selected ? regionName : 'sua seleção'}</h2>
+                        {!choice ? <p className="mt-5 border border-[#E8E1D6] p-6 text-sm text-[#6B6B6B]">Toque em um ponto da orelha ou no nome de uma região para começar.</p> : <>
+                          <div className="mt-6 grid gap-5 sm:grid-cols-2">
+                            <label className="text-xs">Cor da joia
+                              <select className={field} value={choice.color} onChange={(event) => update({ color: event.target.value as Color })}>{Object.entries(COLORS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select>
+                            </label>
+                            <label className="text-xs">Tipo de peça
+                              <select className={field} value={choice.type} onChange={(event) => update({ type: event.target.value as JewelType })}>{Object.entries(TYPES).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select>
+                            </label>
+                            <label className="text-xs">Estilo
+                              <select className={field} value={choice.detail} onChange={(event) => update({ detail: event.target.value as Detail })}>{Object.entries(DETAILS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select>
+                            </label>
+                            <label className="text-xs">Sobre esse ponto
+                              <select className={field} value={choice.intention} onChange={(event) => update({ intention: event.target.value as Choice['intention'] })}><option value="tenho">Já tenho o furo</option><option value="quero">Tenho interesse em perfurar</option></select>
+                            </label>
+                          </div>
+                          <button type="button" onClick={removeRegion} className="mt-4 text-[11px] text-[#77736C] underline underline-offset-4">Remover esta região do projeto</button>
+                          <div className="mb-4 mt-8 flex items-center justify-between gap-4"><h3 className="text-xs uppercase tracking-[0.15em]">Sugestões de joias</h3>{choice.product && <button type="button" onClick={() => useProduct(null)} className="text-[11px] underline">Retirar joia escolhida</button>}</div>
+                          {loading ? <p role="status" className="py-8 text-sm text-[#77736C]">Buscando joias…</p> : error ? <div role="alert" className="border border-[#E8E1D6] p-5 text-sm"><p>{error}</p><button type="button" onClick={() => setRetry((value) => value + 1)} className="mt-3 underline">Tentar novamente</button></div> : !products.length ? <p className="border border-[#E8E1D6] p-5 text-sm leading-relaxed text-[#77736C]">Não encontramos uma sugestão para essa combinação. Experimente outras preferências ou envie seu projeto para a equipe ajudar.</p> : <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+                            {products.map((product) => <article key={product.id} className={`border bg-white p-2 ${choice.product?.id === product.id ? 'border-[#A68A60] ring-1 ring-[#A68A60]' : 'border-[#E8E1D6]'}`}>
+                              <div className="relative aspect-square bg-[#F4F4F2]"><Image src={product.image} alt={product.name} fill sizes="(max-width: 639px) 42vw, 180px" className="object-contain" /></div>
+                              <p className="mt-3 line-clamp-3 text-[11px] leading-relaxed">{product.name}</p>
+                              <p className="mt-2 text-xs">{product.variable ? 'A partir de ' : ''}{money(product.price)}</p>
+                              <button type="button" onClick={() => useProduct(product)} aria-pressed={choice.product?.id === product.id} className="mt-3 w-full bg-[#25231F] px-2 py-2 text-[10px] text-white">{choice.product?.id === product.id ? 'Escolhida ✓' : 'Usar no projeto'}</button>
+                              <Link href={`/produto/${product.slug}`} target="_blank" rel="noopener noreferrer" prefetch={false} className="mt-2 block py-1 text-center text-[10px] text-[#77736C] underline">Ver medidas e opções</Link>
+                            </article>)}
+                          </div>}
+                        </>}
+                      </section>
+                    </div>
+                  </fieldset>
+
+                  <section aria-labelledby="project-summary-title" className="mt-12 border-t border-[#E8E1D6] pt-8">
+                    <div className="flex flex-wrap items-center justify-between gap-5"><h2 id="project-summary-title" className="font-display text-3xl font-light">3. Seu projeto</h2><button type="button" onClick={buildProject} disabled={!selectedRegions.length || building} className="border border-[#25231F] px-5 py-3 text-[11px] uppercase tracking-[0.12em] disabled:opacity-40">{building ? 'Montando sugestões…' : 'Sugerir uma composição'}</button></div>
+                    <p role="status" className="mt-4 text-sm text-[#77736C]">{status || `${selectedRegions.length} ${selectedRegions.length === 1 ? 'região selecionada' : 'regiões selecionadas'}.`}</p>
+                    <ul className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">{selectedRegions.map((region) => {
+                      const item = choices[region.id]!
+                      return <li key={region.id} className="border border-[#E8E1D6] bg-white p-4"><button type="button" disabled={building} onClick={() => selectRegion(region.id)} className="text-left"><span className="block text-sm font-medium">{region.name}</span><span className="mt-2 block text-xs text-[#77736C]">{COLORS[item.color]} · {TYPES[item.type]} · {DETAILS[item.detail]}</span><span className="mt-2 block text-xs">{item.product?.name || 'A equipe pode ajudar a escolher a joia.'}</span><span className="mt-3 block text-[10px] underline">Editar seleção</span></button></li>
+                    })}</ul>
+                    <label className="mt-7 block max-w-2xl text-xs">Quer contar mais sobre seu projeto?
+                      <textarea value={notes} onChange={(event) => setNotes(event.target.value)} maxLength={600} rows={3} placeholder="Ex.: prefiro uma composição delicada, quero combinar com minhas joias atuais…" className={field} />
+                    </label>
+                    <button type="button" onClick={openWhatsapp} disabled={!selectedRegions.length || building} className="mt-6 bg-[#25231F] px-6 py-4 text-[11px] uppercase tracking-[0.14em] text-white disabled:opacity-40">Enviar preferências pelo WhatsApp</button>
+                    <p className="mt-3 text-xs text-[#77736C]">O WhatsApp abrirá com a mensagem pronta para você revisar e enviar.</p>
+                    <p className="mt-6 max-w-3xl text-[11px] leading-relaxed text-[#77736C]">Esta é uma simulação visual. A equipe confirma anatomia, medidas, encaixes e possibilidade de novas perfurações. As sugestões consideram a classificação e o estoque do catálogo; preços e disponibilidade são confirmados no atendimento. A escolha de uma peça aqui não reserva estoque.</p>
+                  </section>
+                </div>
+              </div>
+            )
+          }
+          ''',
+          }
+
+          for name, content in files.items():
+              path = Path(name)
+              path.parent.mkdir(parents=True, exist_ok=True)
+              path.write_text(content.rstrip() + "\n", encoding="utf-8")
+              print("Preparado:", name)
+
+          home_path.write_text(home, encoding="utf-8")
+          print("Chamada do projeto adicionada à home.")
+          PY
+
+      - name: Instalar dependências
+        run: npm ci
+
+      - name: Conferir TypeScript
+        run: npx --no-install tsc --noEmit
+
+      - name: Salvar no GitHub
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/lib/ear-project.ts src/app/api/projeto-auricular/route.ts src/app/projeto-auricular/page.tsx src/app/projeto-auricular/EarProjectClient.tsx src/app/page.tsx
+          if git diff --cached --quiet; then
+            echo "Nenhuma alteração necessária."
+            exit 0
+          fi
+          git commit -m "Adiciona montador de projeto auricular"
+          git push origin HEAD:main

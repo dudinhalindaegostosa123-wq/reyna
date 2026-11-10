@@ -1,0 +1,931 @@
+name: Instalar compra e emissão de etiquetas
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: compra-emissao-etiquetas
+  cancel-in-progress: false
+
+jobs:
+  instalar:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Instalar compra e emissão
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          root = Path.cwd()
+
+          files = {
+          'src/app/admin/frete/purchase-actions.ts': r''''use server'
+
+          import { randomUUID } from 'node:crypto'
+          import { revalidatePath } from 'next/cache'
+          import { adminDatabase } from '@/lib/admin-auth'
+          import { saleUuid } from '@/lib/admin-sales'
+          import {
+            labelShipmentRequest,
+            observeShipment,
+            privatePrintUrl,
+            purchaseError,
+            purchaseSource,
+            purchaseView,
+          } from '@/lib/label-purchase-server'
+          import type { LabelPurchaseView } from '@/lib/label-purchase'
+          import type { SupabaseClient } from '@supabase/supabase-js'
+
+          type Result = {
+            error: string
+            message?: string
+            view?: LabelPurchaseView
+            url?: string
+          }
+
+          async function note(
+            db: SupabaseClient,
+            id: string,
+            operation: string,
+            actor: string,
+            value: string
+          ) {
+            await db.rpc('serenity_label_purchase_note', {
+              p_order: id,
+              p_operation: operation,
+              p_note: value,
+              p_actor: actor,
+            })
+          }
+
+          async function generate(
+            db: SupabaseClient,
+            id: string,
+            actor: string,
+            contact: string
+          ) {
+            const source = await observeShipment(db, id, actor, contact)
+
+            if (source.remote.generated) return
+
+            if (!source.remote.paid || source.remote.blocked) {
+              throw new Error('PURCHASE_ORDER')
+            }
+
+            const { error } = await db.rpc(
+              'serenity_label_purchase_claim',
+              {
+                p_order: id,
+                p_operation: source.job.operation,
+                p_step: 'generate',
+                p_review: null,
+                p_actor: actor,
+              }
+            )
+
+            if (error) throw error
+
+            try {
+              await labelShipmentRequest(
+                'generate',
+                source.job.remote_id,
+                contact
+              )
+
+              const next = await observeShipment(db, id, actor, contact)
+
+              if (!next.remote.generated) {
+                await note(
+                  db, id, source.job.operation,
+                  actor, 'generation_waiting'
+                )
+              }
+            } catch (error) {
+              await note(
+                db, id, source.job.operation,
+                actor, 'generation_unknown'
+              )
+              throw error
+            }
+          }
+
+          export async function labelPurchaseAction(
+            id: string,
+            command: 'load' | 'check' | 'buy' | 'generate' | 'print',
+            reviewId = ''
+          ): Promise<Result> {
+            const { db, user } = await adminDatabase()
+
+            if (
+              !saleUuid(id) ||
+              !['load', 'check', 'buy', 'generate', 'print'].includes(command)
+            ) {
+              return { error: 'Operação inválida.' }
+            }
+
+            try {
+              if (command === 'load') {
+                return { error: '', view: await purchaseView(db, id) }
+              }
+
+              if (command === 'check') {
+                const source = await observeShipment(
+                  db, id, user.id, user.email || ''
+                )
+
+                const current = await purchaseView(db, id)
+
+                if (
+                  !source.remote.paid &&
+                  !source.remote.blocked &&
+                  ['empty', 'review'].includes(current.phase) &&
+                  !source.issues.length
+                ) {
+                  if (source.remote.cents === null) {
+                    return {
+                      error: 'O Melhor Envio não retornou um custo válido. Confira o envio na sua conta.',
+                      view: current,
+                    }
+                  }
+
+                  const { error } = await db.rpc(
+                    'serenity_label_purchase_review',
+                    {
+                      p_order: id,
+                      p_operation: source.job.operation,
+                      p_remote: source.job.remote_id,
+                      p_review: randomUUID(),
+                      p_cents: source.remote.cents,
+                      p_version: source.order.updated_at,
+                      p_actor: user.id,
+                    }
+                  )
+
+                  if (error) throw error
+                }
+              } else if (command === 'buy') {
+                if (!saleUuid(reviewId)) {
+                  throw new Error('PURCHASE_STALE')
+                }
+
+                const source = await purchaseSource(db, id)
+
+                if (source.issues.length) {
+                  return {
+                    error: source.issues.join(' '),
+                    view: await purchaseView(db, id),
+                  }
+                }
+
+                const p = source.purchase
+
+                if (
+                  !p ||
+                  p.phase !== 'review' ||
+                  p.review_id !== reviewId ||
+                  Date.parse(p.review_expires) <= Date.now()
+                ) {
+                  throw new Error('PURCHASE_STALE')
+                }
+
+                const fresh = await observeShipment(
+                  db, id, user.id, user.email || ''
+                )
+
+                if (fresh.remote.blocked) {
+                  return {
+                    error: 'O envio foi cancelado ou expirou no Melhor Envio.',
+                    view: await purchaseView(db, id),
+                  }
+                }
+
+                if (fresh.remote.paid) {
+                  return {
+                    error: '',
+                    message: 'A compra já estava confirmada no Melhor Envio.',
+                    view: await purchaseView(db, id),
+                  }
+                }
+
+                if (fresh.remote.cents !== Number(p.review_cents)) {
+                  return {
+                    error: 'O custo mudou. Atualize a situação para conferir o novo valor antes de comprar.',
+                    view: await purchaseView(db, id),
+                  }
+                }
+
+                const { error } = await db.rpc(
+                  'serenity_label_purchase_claim',
+                  {
+                    p_order: id,
+                    p_operation: source.job.operation,
+                    p_step: 'buy',
+                    p_review: reviewId,
+                    p_actor: user.id,
+                  }
+                )
+
+                if (error) throw error
+
+                try {
+                  await labelShipmentRequest(
+                    'buy',
+                    source.job.remote_id,
+                    user.email || ''
+                  )
+
+                  const result = await observeShipment(
+                    db, id, user.id, user.email || ''
+                  )
+
+                  if (!result.remote.paid) {
+                    await note(
+                      db, id, source.job.operation,
+                      user.id, 'purchase_unknown'
+                    )
+
+                    return {
+                      error: 'O pagamento da etiqueta ainda não foi confirmado. Atualize a situação; a compra não será repetida automaticamente.',
+                      view: await purchaseView(db, id),
+                    }
+                  }
+                } catch (error) {
+                  await note(
+                    db, id, source.job.operation,
+                    user.id, 'purchase_unknown'
+                  )
+                  throw error
+                }
+
+                await generate(db, id, user.id, user.email || '')
+              } else if (command === 'generate') {
+                await generate(db, id, user.id, user.email || '')
+              } else if (command === 'print') {
+                const source = await observeShipment(
+                  db, id, user.id, user.email || ''
+                )
+
+                if (!source.remote.generated || source.remote.blocked) {
+                  return {
+                    error: 'Aguarde a confirmação de geração da etiqueta.',
+                    view: await purchaseView(db, id),
+                  }
+                }
+
+                const response = await labelShipmentRequest(
+                  'print',
+                  source.job.remote_id,
+                  user.email || ''
+                )
+
+                return {
+                  error: '',
+                  url: privatePrintUrl(response),
+                  view: await purchaseView(db, id),
+                }
+              }
+
+              revalidatePath('/admin/pedidos/' + id)
+
+              return {
+                error: '',
+                message: 'Situação do envio atualizada.',
+                view: await purchaseView(db, id),
+              }
+            } catch (error) {
+              revalidatePath('/admin/pedidos/' + id)
+
+              let view: LabelPurchaseView | undefined
+
+              try {
+                view = await purchaseView(db, id)
+              } catch {}
+
+              return {
+                error: purchaseError(error),
+                view,
+              }
+            }
+          }
+          ''',
+
+          'src/components/admin/LabelPurchase.tsx': r''''use client'
+
+          import { useEffect, useState } from 'react'
+          import { labelPurchaseAction } from '@/app/admin/frete/purchase-actions'
+          import { saleMoney } from '@/lib/admin-sales'
+          import type { LabelPurchaseView } from '@/lib/label-purchase'
+
+          export default function LabelPurchase({
+            orderId,
+          }: {
+            orderId: string
+          }) {
+            const [view, setView] = useState<LabelPurchaseView | null>(null)
+            const [busy, setBusy] = useState(false)
+            const [message, setMessage] = useState('')
+            const [url, setUrl] = useState('')
+
+            useEffect(() => {
+              let active = true
+              setView(null)
+              setUrl('')
+              setMessage('')
+
+              labelPurchaseAction(orderId, 'load')
+                .then(result => {
+                  if (active) {
+                    if (result.view) setView(result.view)
+                    if (result.error) setMessage(result.error)
+                  }
+                })
+                .catch(() => {
+                  if (active) {
+                    setMessage(
+                      'Não foi possível carregar a emissão. Tente atualizar a situação.'
+                    )
+                  }
+                })
+
+              return () => { active = false }
+            }, [orderId])
+
+            async function run(
+              command: 'check' | 'buy' | 'generate' | 'print'
+            ) {
+              if (busy) return
+
+              setBusy(true)
+              setMessage('')
+              setUrl('')
+
+              try {
+                const result = await labelPurchaseAction(
+                  orderId,
+                  command,
+                  view?.reviewId || ''
+                )
+
+                if (result.view) setView(result.view)
+                if (result.url) setUrl(result.url)
+
+                setMessage(result.error || result.message || '')
+              } catch {
+                setMessage(
+                  'A conexão falhou. Atualize a situação antes de tentar outra compra.'
+                )
+                setView(previous =>
+                  previous ? { ...previous, phase: 'uncertain' } : null
+                )
+              } finally {
+                setBusy(false)
+              }
+            }
+
+            const labels: Record<string, string> = {
+              empty: 'Confira o custo antes de emitir',
+              review: 'Custo conferido — aguardando compra',
+              buying: 'Compra em andamento — confira a confirmação',
+              uncertain: 'Compra ainda não confirmada',
+              paid: 'Etiqueta paga — aguardando geração',
+              generating: 'Geração solicitada — aguardando confirmação',
+              ready: 'Etiqueta gerada',
+              blocked: 'Envio cancelado ou expirado no Melhor Envio',
+            }
+
+            const button = 'rounded-full border border-[#BDA98B] bg-white px-5 py-3 text-xs disabled:opacity-40'
+
+            return (
+              <section className="mt-5 rounded-2xl border border-[#DDD3C4] bg-white p-4 sm:p-5">
+                <h3 className="text-sm font-medium">
+                  Compra e emissão da etiqueta
+                </h3>
+
+                <p role="status" className="mt-3 text-xs text-[#756B5D]">
+                  {view
+                    ? labels[view.phase] || view.phase
+                    : 'Carregando situação…'}
+                </p>
+
+                {view?.paidCents !== null &&
+                  view?.paidCents !== undefined && (
+                    <p className="mt-3 text-sm">
+                      Custo confirmado da etiqueta:{' '}
+                      <strong>{saleMoney(view.paidCents / 100)}</strong>
+                    </p>
+                  )}
+
+                {view?.phase === 'review' &&
+                  view.reviewCents !== null && (
+                    <div className="mt-4 rounded-xl bg-[#F8F5EF] p-4">
+                      <p className="text-sm">
+                        Valor para compra:{' '}
+                        <strong>
+                          {saleMoney(view.reviewCents / 100)}
+                        </strong>
+                      </p>
+
+                      <p className="mt-2 text-xs leading-relaxed text-[#756B5D]">
+                        A compra usa o saldo da carteira do Melhor Envio.
+                        Após confirmar o pagamento, o painel solicita a
+                        geração da etiqueta. A conferência vale por
+                        cinco minutos.
+                      </p>
+                    </div>
+                  )}
+
+                {view && view.issues.length > 0 && (
+                  <ul className="mt-4 list-disc space-y-2 pl-4 text-xs text-[#8A6532]">
+                    {view.issues.map(issue => (
+                      <li key={issue}>{issue}</li>
+                    ))}
+                  </ul>
+                )}
+
+                <div className="mt-4 flex flex-wrap gap-3">
+                  <button type="button" disabled={busy}
+                    onClick={() => void run('check')} className={button}>
+                    {busy ? 'Aguarde…' : 'Atualizar situação e custo'}
+                  </button>
+
+                  {view?.phase === 'review' &&
+                    view.reviewCents !== null && (
+                      <button
+                        type="button"
+                        disabled={busy || view.issues.length > 0}
+                        onClick={() => void run('buy')}
+                        className="rounded-full bg-[#292621] px-5 py-3 text-xs text-white disabled:opacity-40"
+                      >
+                        Comprar e gerar por{' '}
+                        {saleMoney(view.reviewCents / 100)}
+                      </button>
+                    )}
+
+                  {view?.phase === 'paid' && (
+                    <button type="button"
+                      disabled={busy || view.issues.length > 0}
+                      onClick={() => void run('generate')}
+                      className={button}>
+                      Solicitar geração da etiqueta
+                    </button>
+                  )}
+
+                  {view?.phase === 'ready' && (
+                    <button type="button" disabled={busy}
+                      onClick={() => void run('print')}
+                      className={button}>
+                      Obter link de impressão
+                    </button>
+                  )}
+                </div>
+
+                {view &&
+                  ['buying', 'uncertain', 'generating'].includes(view.phase) && (
+                    <p className="mt-4 text-xs leading-relaxed text-[#756B5D]">
+                      Atualize a situação para consultar a confirmação.
+                      O painel não repete a compra automaticamente.
+                      Se a situação não avançar, confira o envio na
+                      sua conta do Melhor Envio.
+                    </p>
+                  )}
+
+                {url && (
+                  <a href={url} target="_blank" rel="noopener noreferrer"
+                    className="mt-4 inline-block text-sm font-medium underline">
+                    Abrir etiqueta para imprimir ↗
+                  </a>
+                )}
+
+                <a href="https://melhorenvio.com.br" target="_blank"
+                  rel="noopener noreferrer"
+                  className="mt-4 block text-xs text-[#756B5D] underline">
+                  Abrir minha conta do Melhor Envio ↗
+                </a>
+
+                <p role="status" className="mt-4 text-xs leading-relaxed">
+                  {message}
+                </p>
+              </section>
+            )
+          }
+          ''',
+
+          'src/lib/label-purchase-server.ts': r'''import 'server-only'
+
+          import type { SupabaseClient } from '@supabase/supabase-js'
+          import { remoteCart, remotePrice, verifyRemote } from '@/lib/label-cart-server'
+          import { saleUuid } from '@/lib/admin-sales'
+          import type { LabelPurchaseView } from '@/lib/label-purchase'
+
+          type Row = Record<string, unknown>
+
+          const row = (value: unknown): Row =>
+            value && typeof value === 'object' && !Array.isArray(value)
+              ? value as Row
+              : {}
+
+          export async function purchaseSource(
+            db: SupabaseClient,
+            id: string
+          ) {
+            const [o, j, p] = await Promise.all([
+              db.from('serenity_orders')
+                .select('id,status,shipping_pending,updated_at')
+                .eq('id', id).single(),
+              db.from('serenity_label_jobs')
+                .select('*').eq('order_id', id).single(),
+              db.from('serenity_label_purchases')
+                .select('*').eq('order_id', id).maybeSingle(),
+            ])
+
+            if (o.error || j.error || p.error) {
+              throw new Error('PURCHASE_QUERY')
+            }
+
+            const issues: string[] = []
+
+            if (o.data.status !== 'paid' || o.data.shipping_pending) {
+              issues.push(
+                'O pedido precisa estar pago e com o frete confirmado.'
+              )
+            }
+
+            if (j.data.state !== 'prepared' || !saleUuid(j.data.remote_id)) {
+              issues.push(
+                'Prepare o envio no carrinho antes de comprar a etiqueta.'
+              )
+            }
+
+            return {
+              order: o.data,
+              job: j.data,
+              purchase: p.data,
+              issues,
+            }
+          }
+
+          export async function purchaseView(
+            db: SupabaseClient,
+            id: string
+          ): Promise<LabelPurchaseView> {
+            const source = await purchaseSource(db, id)
+            const p = source.purchase
+
+            return {
+              orderId: id,
+              phase: String(p?.phase || 'empty'),
+              reviewId: String(p?.review_id || ''),
+              reviewCents:
+                p?.review_cents == null ? null : Number(p.review_cents),
+              paidCents:
+                p?.paid_cents == null ? null : Number(p.paid_cents),
+              expires: String(p?.review_expires || ''),
+              carrierStatus: String(p?.carrier_status || ''),
+              issues: source.issues,
+            }
+          }
+
+          export async function labelShipmentRequest(
+            command: 'info' | 'buy' | 'generate' | 'print',
+            id: string,
+            contact: string
+          ): Promise<unknown> {
+            const token = process.env.MELHOR_ENVIO_TOKEN?.trim()
+
+            if (
+              !['info', 'buy', 'generate', 'print'].includes(command) ||
+              !saleUuid(id) ||
+              !token ||
+              !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(contact)
+            ) {
+              throw new Error('PURCHASE_CONFIG')
+            }
+
+            const paths = {
+              info: '/orders/' + id,
+              buy: '/shipment/checkout',
+              generate: '/shipment/generate',
+              print: '/shipment/print',
+            }
+
+            const controller = new AbortController()
+            const timer = setTimeout(() => controller.abort(), 18000)
+
+            try {
+              const response = await fetch(
+                'https://www.melhorenvio.com.br/api/v2/me' + paths[command],
+                {
+                  method: command === 'info' ? 'GET' : 'POST',
+                  headers: {
+                    Authorization:
+                      'Bearer ' + token.replace(/^Bearer\s+/i, ''),
+                    Accept: 'application/json',
+                    'Content-Type': 'application/json',
+                    'User-Agent': `Serenity Site (${contact})`,
+                  },
+                  body: command === 'info'
+                    ? undefined
+                    : JSON.stringify({
+                        orders: [id],
+                        ...(command === 'print' ? { mode: 'private' } : {}),
+                      }),
+                  cache: 'no-store',
+                  redirect: 'error',
+                  signal: controller.signal,
+                }
+              )
+
+              if (!response.ok) throw new Error('PURCHASE_PROVIDER')
+              return await response.json()
+            } finally {
+              clearTimeout(timer)
+            }
+          }
+
+          export function inspectShipment(
+            input: unknown,
+            jobInput: unknown
+          ) {
+            const job = row(jobInput)
+
+            const value = verifyRemote(
+              input,
+              String(job.remote_id),
+              String(job.operation)
+            )
+
+            const expected = String(
+              row(row(job.selected).provider).id ||
+              row(job.context).checkoutServiceId ||
+              ''
+            )
+
+            const service =
+              value.service_id ??
+              row(value.service).id ??
+              (
+                typeof value.service === 'number' ||
+                typeof value.service === 'string'
+                  ? value.service
+                  : ''
+              )
+
+            if (!expected || String(service) !== expected) {
+              throw new Error('PURCHASE_SERVICE')
+            }
+
+            const status = String(value.status || '').toLowerCase()
+
+            const blocked =
+              ['canceled', 'cancelled', 'expired'].includes(status) ||
+              Boolean(
+                value.canceled_at ||
+                value.cancelled_at ||
+                value.expired_at
+              )
+
+            const validDate = (v: unknown) =>
+              typeof v === 'string' && Number.isFinite(Date.parse(v))
+
+            const paid = !blocked && (
+              validDate(value.paid_at) ||
+              [
+                'released', 'generated', 'received', 'posted',
+                'delivered', 'undelivered', 'suspended', 'paused',
+              ].includes(status)
+            )
+
+            const generated = paid && (
+              validDate(value.generated_at) ||
+              [
+                'generated', 'received', 'posted', 'delivered',
+                'undelivered', 'suspended', 'paused',
+              ].includes(status)
+            )
+
+            if (!blocked && !paid && status !== 'pending') {
+              throw new Error('PURCHASE_REMOTE_STATE')
+            }
+
+            const price = remotePrice(input)
+
+            return {
+              status,
+              blocked,
+              paid,
+              generated,
+              cents: price === null ? null : Math.round(price * 100),
+            }
+          }
+
+          export async function observeShipment(
+            db: SupabaseClient,
+            id: string,
+            actor: string,
+            contact: string
+          ) {
+            const source = await purchaseSource(db, id)
+
+            if (
+              source.job.state !== 'prepared' ||
+              !saleUuid(source.job.remote_id)
+            ) {
+              throw new Error('PURCHASE_LINK')
+            }
+
+            const response = await labelShipmentRequest(
+              'info',
+              source.job.remote_id,
+              contact
+            )
+
+            const remote = inspectShipment(response, source.job)
+
+            const { error } = await db.rpc(
+              'serenity_label_purchase_observe',
+              {
+                p_order: id,
+                p_operation: source.job.operation,
+                p_remote: source.job.remote_id,
+                p_status: remote.status,
+                p_paid: remote.paid,
+                p_generated: remote.generated,
+                p_blocked: remote.blocked,
+                p_cents: remote.cents,
+                p_actor: actor,
+              }
+            )
+
+            if (error) throw error
+
+            return { ...source, remote }
+          }
+
+          export function privatePrintUrl(input: unknown): string {
+            const value = remoteCart(input)
+            const raw = value.url
+
+            if (typeof raw !== 'string' || raw.length > 4000) {
+              throw new Error('PURCHASE_PRINT')
+            }
+
+            const url = new URL(raw)
+
+            if (
+              url.protocol !== 'https:' ||
+              url.username ||
+              url.password ||
+              (url.port && url.port !== '443') ||
+              !(
+                url.hostname === 'melhorenvio.com.br' ||
+                url.hostname.endsWith('.melhorenvio.com.br')
+              )
+            ) {
+              throw new Error('PURCHASE_PRINT')
+            }
+
+            return url.href
+          }
+
+          export function purchaseError(error: unknown): string {
+            const code =
+              error && typeof error === 'object' && 'message' in error
+                ? String(error.message)
+                : ''
+
+            const messages: Record<string, string> = {
+              PURCHASE_CONFIG:
+                'Confira o token do Melhor Envio e o e-mail do administrador.',
+              PURCHASE_ORDER:
+                'O pedido precisa estar pago e com o frete confirmado.',
+              PURCHASE_LINK:
+                'Confira o vínculo do envio com este pedido.',
+              PURCHASE_STALE:
+                'A conferência expirou ou o pedido mudou. Atualize a situação e confira o custo novamente.',
+              PURCHASE_LOCKED:
+                'Já existe uma operação em andamento ou uma compra registrada. Atualize a situação antes de continuar.',
+              PURCHASE_SERVICE:
+                'O serviço no Melhor Envio está diferente do vinculado ao pedido. Confira o envio na sua conta.',
+              PURCHASE_REMOTE_STATE:
+                'A situação retornada pelo Melhor Envio precisa de conferência na sua conta.',
+              PURCHASE_PRINT:
+                'Não foi possível disponibilizar o link privado. Confira a etiqueta no Melhor Envio.',
+            }
+
+            return messages[code] ||
+              'Não foi possível concluir. Atualize a situação e confira sua conta no Melhor Envio antes de tentar outra compra.'
+          }
+          ''',
+
+          'src/lib/label-purchase.ts': r'''export interface LabelPurchaseView {
+            orderId: string
+            phase: string
+            reviewId: string
+            reviewCents: number | null
+            paidCents: number | null
+            expires: string
+            carrierStatus: string
+            issues: string[]
+          }
+          ''',
+          }
+
+          marker = '// Serenity: compra e emissão de etiquetas v1'
+          name = 'src/components/admin/LabelOperations.tsx'
+          target = root / name
+
+          if not target.is_file():
+              raise SystemExit(
+                  'Falta LabelOperations.tsx. Nenhum arquivo foi alterado.'
+              )
+
+          source = target.read_text(encoding='utf-8')
+
+          if marker not in source:
+              if source.count('</section>') != 1 or 'view.orderId' not in source:
+                  raise SystemExit(
+                      'A seção do envio mudou. Nenhum arquivo foi alterado; '
+                      'envie LabelOperations.tsx.'
+                  )
+
+              source = re.sub(
+                  r"(['\"]use client['\"];?)",
+                  lambda m: m.group(0)
+                    + "\nimport LabelPurchase from '@/components/admin/LabelPurchase'",
+                  source,
+                  count=1
+              )
+
+              source = source.replace(
+                  '</section>',
+                  "{view.state === 'prepared' && <LabelPurchase orderId={view.orderId} />}\n    </section>",
+                  1
+              )
+
+              source = re.sub(
+                  r'A compra e a emissão da etiqueta ainda\s+não\s+foram realizadas pelo painel\.',
+                  'Consulte abaixo a compra e a emissão da etiqueta.',
+                  source
+              )
+
+              files[name] = source + '\n' + marker + '\n'
+
+          name = 'src/app/admin/pedidos/[id]/page.tsx'
+          target = root / name
+
+          if target.is_file():
+              source = target.read_text(encoding='utf-8')
+
+              source = re.sub(
+                  r'A preparação foi concluída\.\s*A compra e a\s+emissão da etiqueta ainda precisam ser\s+realizadas\.',
+                  'O envio está vinculado. Consulte a situação da etiqueta nos detalhes abaixo.',
+                  source
+              )
+
+              files[name] = source
+
+          for name, source in files.items():
+              target = root / name
+              target.parent.mkdir(parents=True, exist_ok=True)
+              target.write_text(source, encoding='utf-8')
+
+          print(
+              'Compra e emissão instaladas. '
+              'O instalador não compra nenhuma etiqueta.'
+          )
+          PY
+
+      - run: npm ci --ignore-scripts
+
+      - run: npx tsc --noEmit --incremental false
+
+      - run: npx next lint --no-cache
+
+      - name: Salvar atualização
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git add src/lib/label-purchase.ts src/lib/label-purchase-server.ts src/app/admin/frete/purchase-actions.ts src/components/admin/LabelPurchase.tsx src/components/admin/LabelOperations.tsx src/app/admin/pedidos/'[id]'/page.tsx
+
+          if git diff --cached --quiet; then
+            echo "Compra e emissão já instaladas."
+          else
+            git commit -m "Comprar e gerar etiquetas com conferência e proteção contra repetição"
+            git push origin HEAD:main
+          fi

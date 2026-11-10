@@ -1,0 +1,387 @@
+name: Conectar carrinho aos pedidos
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: conectar-carrinho-pedidos
+  cancel-in-progress: false
+
+jobs:
+  instalar:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Conectar o carrinho
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          root=Path.cwd()
+          files={
+              'src/app/checkout/actions.ts': r''''use server'
+          import { revalidatePath } from 'next/cache'
+          import { checkoutDatabase,checkoutError,checkoutHash } from '@/lib/checkout-server'
+          import { validateCheckoutLines,validateCheckoutContact } from '@/lib/checkout'
+          import type { CheckoutLine,CheckoutQuote,CheckoutCustomer,CheckoutAddress } from '@/lib/checkout'
+
+          export async function reviewCheckout(input:CheckoutLine[]):Promise<{error:string;quote?:CheckoutQuote}> {
+            let items:CheckoutLine[]
+            try {items=validateCheckoutLines(input)}catch(error){return {error:error instanceof Error ? error.message : 'Confira o carrinho.'}}
+            try {
+              const db=await checkoutDatabase('review')
+              const {data,error}=await db.rpc('serenity_checkout_quote',{p_items:items})
+              if(error)throw error
+              return {error:'',quote:data as CheckoutQuote}
+            }catch(error){return {error:checkoutError(error)}}
+          }
+
+          export async function submitCheckout(input:{id:string;items:CheckoutLine[];customer:CheckoutCustomer;address:CheckoutAddress;totalCents:number;website:string}):Promise<{error:string;receipt?:{number:number;total:number}}> {
+            let items:CheckoutLine[],contact:ReturnType<typeof validateCheckoutContact>
+            try {
+              if(!input||typeof input.id!=='string'||!/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i.test(input.id)||!Number.isSafeInteger(input.totalCents)||input.totalCents<0||input.website!=='')throw new Error('Confira os dados do pedido.')
+              items=validateCheckoutLines(input.items)
+              contact=validateCheckoutContact(input.customer,input.address)
+            }catch(error){return {error:error instanceof Error ? error.message : 'Confira os dados do pedido.'}}
+            try {
+              const db=await checkoutDatabase('submit')
+              const fingerprint=checkoutHash(JSON.stringify({items,...contact,total:input.totalCents}))
+              const {data,error}=await db.rpc('serenity_checkout_create',{p_id:input.id,p_fingerprint:fingerprint,p_items:items,p_customer:contact.customer,p_address:contact.address,p_expected:input.totalCents})
+              if(error)throw error
+              revalidatePath('/admin/pedidos')
+              revalidatePath('/admin/clientes')
+              return {error:'',receipt:data as {number:number;total:number}}
+            }catch(error){return {error:checkoutError(error)}}
+          }
+          ''',
+
+              'src/app/checkout/CheckoutClient.tsx': r''''use client'
+          import { useEffect,useState } from 'react'
+          import Link from 'next/link'
+          import { useCartStore } from '@/lib/cart'
+          import { formatPrice } from '@/lib/data'
+          import { ANODIZATION_COLORS } from '@/lib/anodization'
+          import { CHECKOUT_STATES } from '@/lib/checkout'
+          import type { CheckoutQuote } from '@/lib/checkout'
+          import { reviewCheckout,submitCheckout } from './actions'
+
+          const field='mt-1 min-h-[46px] w-full rounded-xl border border-[#DCD4C8] bg-white px-3 py-2 text-base sm:text-sm'
+
+          export default function CheckoutClient(){
+            const {items,clearCart}=useCartStore()
+            const [ready,setReady]=useState(false),[pending,setPending]=useState(false),[message,setMessage]=useState(''),[quote,setQuote]=useState<CheckoutQuote|null>(null),[receipt,setReceipt]=useState<{number:number;total:number}|null>(null)
+            const [requestId,setRequestId]=useState('')
+            const lines=items.map(item=>({slug:item.slug,variant:item.variationId || '',quantity:item.quantity,color:item.anodization?.code || ''}))
+            const signature=JSON.stringify(lines)
+
+            useEffect(()=>{setReady(true)},[])
+
+            useEffect(()=>{
+              setQuote(null)
+              setMessage('')
+              if(!ready)return
+              try {
+                const saved=sessionStorage.getItem('serenity-checkout-request')
+                const value=saved ? JSON.parse(saved) : null
+                const id=value?.cart===signature && typeof value?.id==='string' ? value.id : crypto.randomUUID()
+                sessionStorage.setItem('serenity-checkout-request',JSON.stringify({cart:signature,id}))
+                setRequestId(id)
+              }catch{
+                setRequestId(crypto.randomUUID())
+              }
+            },[signature,ready])
+
+            if(!ready)return <div role="status" className="px-5 py-16 text-center text-sm">Carregando seu carrinho…</div>
+
+            if(receipt)return <main className="mx-auto max-w-2xl px-5 py-16"><p className="text-xs uppercase tracking-widest text-[#947B57]">Serenity Piercings</p><h1 className="mt-4 text-3xl font-medium">Pedido #{receipt.number} recebido</h1><div className="my-7 rounded-3xl border border-[#E5DED3] bg-white p-6"><p className="text-sm">Valor das peças: <strong>{formatPrice(receipt.total)}</strong></p><p className="mt-4 text-sm leading-relaxed text-[#756B5D]">Seu pedido foi enviado à equipe. Frete, disponibilidade final e pagamento ainda precisam ser confirmados. Nenhum valor foi cobrado e as peças ainda não estão reservadas.</p></div><p className="mb-6 text-xs text-[#81796C]">Guarde o número do pedido para falar com o atendimento.</p><Link href="/" className="inline-flex rounded-full bg-[#292621] px-7 py-3 text-sm text-white">Voltar à loja</Link></main>
+
+            if(!items.length)return <main className="mx-auto max-w-xl px-5 py-16 text-center"><h1 className="text-2xl font-medium">Seu carrinho está vazio</h1><Link href="/categoria/todos" className="mt-6 inline-block underline">Escolher minhas joias</Link></main>
+
+            return <main className="mx-auto max-w-5xl px-5 py-8 sm:px-8"><Link href="/carrinho" className="text-xs underline">← Voltar ao carrinho</Link><h1 className="mt-6 text-3xl font-medium tracking-tight">Enviar meu pedido</h1><p className="mb-7 mt-3 max-w-xl text-sm leading-relaxed text-[#756B5D]">Confira suas peças e informe seus dados. A equipe receberá o pedido para confirmar frete, disponibilidade e pagamento.</p>
+              <section className="mb-6 rounded-3xl border border-[#E5DED3] bg-white p-5 sm:p-7"><h2 className="text-lg font-medium">Suas peças</h2>{!quote ? <><p className="my-4 text-sm text-[#81796C]">Vamos conferir os preços e a disponibilidade atual das peças, incluindo a anodização escolhida.</p><button type="button" disabled={pending} onClick={async()=>{setPending(true);setMessage('');try {const result=await reviewCheckout(lines);if(result.error)setMessage(result.error);else if(result.quote)setQuote(result.quote)}catch{setMessage('Falha de conexão. Tente conferir novamente.')}finally{setPending(false)}}} className="min-h-[46px] rounded-full bg-[#292621] px-6 text-sm text-white disabled:opacity-50">{pending ? 'Conferindo…' : 'Conferir peças e valores'}</button></> : <><ul className="mt-4 divide-y divide-[#E5DED3]">{quote.items.map((item,i)=><li key={i} className="flex items-start justify-between gap-4 py-4"><div className="min-w-0"><p className="text-sm font-medium">{item.name}</p>{item.variation && <p className="mt-1 text-xs text-[#81796C]">{item.variation}</p>}{item.color && <p className="mt-1 text-xs text-[#81796C]">Anodização: {ANODIZATION_COLORS.find(c=>c.code===item.color)?.label} · {item.color} V (+ {formatPrice(item.fee)} por unidade)</p>}<p className="mt-2 text-xs">{item.quantity} × {formatPrice(item.unit_price+item.fee)}</p></div><strong className="shrink-0 text-sm">{formatPrice(item.line_total)}</strong></li>)}</ul><div className="mt-3 flex justify-between gap-4 border-t border-[#E5DED3] pt-5"><span className="text-sm">Valor das peças</span><strong>{formatPrice(quote.total)}</strong></div><p className="mt-3 text-xs text-[#81796C]">Frete ainda não incluído. O valor exibido considera os preços atuais conferidos no catálogo.</p></>}</section>
+
+              <form onSubmit={async event=>{
+                event.preventDefault()
+                if(!quote||pending||!requestId)return
+                const form=new FormData(event.currentTarget)
+                setPending(true)
+                setMessage('')
+                const get=(key:string)=>String(form.get(key) || '')
+                try {
+                  const result=await submitCheckout({
+                    id:requestId,
+                    items:lines,
+                    customer:{name:get('name'),email:get('email'),phone:get('phone')},
+                    address:{cep:get('cep'),street:get('street'),number:get('number'),complement:get('complement'),district:get('district'),city:get('city'),state:get('state')},
+                    totalCents:quote.total_cents,
+                    website:get('website')
+                  })
+                  if(result.error){
+                    setMessage(result.error)
+                    setQuote(null)
+                    return
+                  }
+                  if(result.receipt){
+                    setReceipt(result.receipt)
+                    try{sessionStorage.removeItem('serenity-checkout-request')}catch{}
+                    clearCart()
+                  }
+                }catch{
+                  setMessage('A conexão falhou. Tente enviar novamente nesta tela; o mesmo envio não será duplicado.')
+                }finally{
+                  setPending(false)
+                }
+              }}>
+                <fieldset disabled={pending} className="space-y-6 disabled:opacity-60"><section className="rounded-3xl border border-[#E5DED3] bg-white p-5 sm:p-7"><h2 className="mb-5 text-lg font-medium">Seus dados</h2><div className="grid gap-4 sm:grid-cols-2"><label className="text-xs sm:col-span-2">Nome completo<input name="name" required maxLength={180} autoComplete="name" className={field}/></label><label className="text-xs">E-mail<input name="email" type="email" required maxLength={254} autoComplete="email" className={field}/></label><label className="text-xs">WhatsApp com DDD<input name="phone" type="tel" required maxLength={25} autoComplete="tel" className={field}/></label></div></section>
+                <section className="rounded-3xl border border-[#E5DED3] bg-white p-5 sm:p-7"><h2 className="mb-5 text-lg font-medium">Endereço para entrega</h2><div className="grid gap-4 sm:grid-cols-2"><label className="text-xs">CEP<input name="cep" required maxLength={10} inputMode="numeric" autoComplete="postal-code" className={field}/></label><label className="text-xs">Estado<select name="state" required defaultValue="" autoComplete="address-level1" className={field}><option value="">Selecione</option>{CHECKOUT_STATES.map(uf=><option key={uf} value={uf}>{uf}</option>)}</select></label><label className="text-xs sm:col-span-2">Rua ou avenida<input name="street" required maxLength={180} autoComplete="address-line1" className={field}/></label><label className="text-xs">Número<input name="number" required maxLength={30} className={field}/></label><label className="text-xs">Complemento (opcional)<input name="complement" maxLength={180} autoComplete="address-line2" className={field}/></label><label className="text-xs">Bairro<input name="district" required maxLength={100} className={field}/></label><label className="text-xs">Cidade<input name="city" required maxLength={100} autoComplete="address-level2" className={field}/></label></div></section>
+                <div hidden aria-hidden="true"><label>Website<input name="website" tabIndex={-1} autoComplete="off"/></label></div><p className="text-xs leading-relaxed text-[#81796C]">Usaremos os dados informados para processar seu pedido e entrar em contato. Este envio não realiza pagamento nem reserva estoque.</p><button disabled={!quote||!requestId} className="min-h-[48px] rounded-full bg-[#292621] px-8 text-sm text-white disabled:opacity-40">{pending ? 'Enviando…' : 'Enviar pedido para a Serenity'}</button></fieldset>
+              </form>{message && <p role="alert" className="mt-5 text-sm text-[#8B3E2F]">{message}</p>}
+            </main>
+          }
+          ''',
+
+              'src/app/checkout/page.tsx': r'''import type { Metadata } from 'next'
+          import CheckoutClient from './CheckoutClient'
+          export const metadata:Metadata={title:'Enviar pedido',robots:{index:false,follow:false}}
+          export default function CheckoutPage(){return <CheckoutClient />}
+          ''',
+
+              'src/components/admin/OrderOrigin.tsx': r'''interface Props { source?:string; shippingPending?:boolean; address?:{street?:string;number?:string;complement?:string;district?:string;city?:string;state?:string;cep?:string}|null }
+          export default function OrderOrigin({source,shippingPending,address}:Props){
+            return <section className="mb-5 rounded-2xl border border-[#DED4C5] bg-[#F8F4ED] p-4"><p className="text-xs font-medium">Origem: {source==='site' ? 'Site' : 'Registro manual'}</p>{shippingPending && <p className="mt-2 text-xs leading-relaxed text-[#756B5D]">Frete e pagamento aguardam configuração e confirmação. O total exibido corresponde somente às peças. Estoque ainda não reservado.</p>}{address && <div className="mt-3 text-sm"><p>{address.street}, {address.number}{address.complement ? ` · ${address.complement}` : ''}</p><p>{address.district} · {address.city}/{address.state}</p><p>CEP {address.cep}</p></div>}</section>
+          }
+          ''',
+
+              'src/lib/checkout-server.ts': r'''import 'server-only'
+          import { createClient } from '@supabase/supabase-js'
+          import { createHmac } from 'node:crypto'
+          import { isIP } from 'node:net'
+          import { headers } from 'next/headers'
+
+          export function checkoutHash(input:string) {
+            const key=process.env.SUPABASE_SECRET_KEY?.trim()
+            if(!key)throw new Error('CHECKOUT_CONFIGURATION')
+            return createHmac('sha256',key).update(input).digest('hex')
+          }
+
+          export async function checkoutDatabase(kind:'review'|'submit') {
+            const url=process.env.SUPABASE_URL?.trim(),key=process.env.SUPABASE_SECRET_KEY?.trim()
+            if(!url||!key)throw new Error('CHECKOUT_CONFIGURATION')
+            const ip=process.env.VERCEL==='1' ? (headers().get('x-forwarded-for') || '').split(',')[0].trim() : process.env.NODE_ENV==='development' ? '127.0.0.1' : ''
+            if(!isIP(ip))throw new Error('CHECKOUT_CONFIGURATION')
+            const db=createClient(url,key,{auth:{persistSession:false,autoRefreshToken:false,detectSessionInUrl:false},global:{fetch:(input,init)=>fetch(input,{...init,cache:'no-store'})}})
+            const {data,error}=await db.rpc('serenity_checkout_limit',{p_key:checkoutHash(`${kind}:${ip}`),p_max:kind==='review' ? 60 : 10})
+            if(error)throw new Error('CHECKOUT_UNAVAILABLE')
+            if(data!==true)throw new Error('CHECKOUT_LIMIT')
+            return db
+          }
+
+          export function checkoutError(error:unknown):string {
+            const message=error && typeof error==='object' && 'message' in error ? String(error.message) : ''
+            if(message.includes('CHECKOUT_LIMIT'))return 'Muitas tentativas em pouco tempo. Aguarde e tente novamente.'
+            if(message.includes('PRICE_CHANGED'))return 'O valor das peças mudou. Confira os valores novamente antes de enviar.'
+            if(message.includes('REQUEST_CHANGED'))return 'Este envio já foi registrado com outros dados. Confira o pedido anterior antes de tentar novamente.'
+            if(/STOCK_CHANGED|PRODUCT_UNAVAILABLE|VARIANT_UNAVAILABLE|PRICE_UNAVAILABLE|INVALID_ANODIZATION/.test(message))return 'Uma peça, variação ou cor mudou de disponibilidade. Volte ao carrinho e confira as opções nas páginas dos produtos.'
+            return 'Não foi possível enviar agora. Tente novamente. Se persistir, fale com a equipe Serenity.'
+          }
+          ''',
+
+              'src/lib/checkout.ts': r'''export interface CheckoutLine { slug:string; variant:string; quantity:number; color:string }
+          export interface CheckoutQuote { items:{ product_id:string; variant_id:string|null; slug:string; name:string; variation:string|null; quantity:number; unit_price:number; color:string; fee:number; line_total:number }[]; total:number; total_cents:number }
+          export interface CheckoutCustomer { name:string; email:string; phone:string }
+          export interface CheckoutAddress { cep:string; street:string; number:string; complement:string; district:string; city:string; state:string }
+
+          export const CHECKOUT_STATES = ['AC','AL','AP','AM','BA','CE','DF','ES','GO','MA','MT','MS','MG','PA','PB','PR','PE','PI','RJ','RN','RS','RO','RR','SC','SP','SE','TO']
+
+          export function validateCheckoutLines(input:unknown):CheckoutLine[] {
+            if(!Array.isArray(input)||input.length<1||input.length>50)throw new Error('Confira os itens do carrinho. O limite é de 50 linhas por pedido.')
+            return input.map(row=>{
+              if(!row||typeof row.slug!=='string'||!/^[a-zA-Z0-9_-]{1,180}$/.test(row.slug)||typeof row.variant!=='string'||!/^(|\d{1,12}|[a-f0-9-]{36})$/i.test(row.variant)||!Number.isInteger(row.quantity)||row.quantity<1||row.quantity>999||typeof row.color!=='string'||!/^(|\d{2,3})$/.test(row.color))throw new Error('Confira as peças, variações e quantidades no carrinho.')
+              return {slug:row.slug,variant:row.variant,quantity:row.quantity,color:row.color}
+            })
+          }
+
+          export function validateCheckoutContact(customer:CheckoutCustomer,address:CheckoutAddress) {
+            const text=(input:unknown,max:number,required=true)=>{
+              if(typeof input!=='string'||input.length>max||(required&&!input.trim()))throw new Error('Preencha os dados de contato e endereço.')
+              return input.trim()
+            }
+
+            if(!customer||!address)throw new Error('Preencha seus dados.')
+
+            const contact={
+              name:text(customer.name,180),
+              email:text(customer.email,254).toLowerCase(),
+              phone:text(customer.phone,25).replace(/\D/g,'')
+            }
+
+            const delivery={
+              cep:text(address.cep,10).replace(/\D/g,''),
+              street:text(address.street,180),
+              number:text(address.number,30),
+              complement:text(address.complement,180,false),
+              district:text(address.district,100),
+              city:text(address.city,100),
+              state:text(address.state,2)
+            }
+
+            if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(contact.email)||!/^\d{10,11}$/.test(contact.phone)||!/^\d{8}$/.test(delivery.cep)||!CHECKOUT_STATES.includes(delivery.state))throw new Error('Confira e-mail, telefone com DDD, CEP e estado.')
+
+            return {customer:contact,address:delivery}
+          }
+          ''',
+          }
+
+          marker='// Serenity: pedidos do site v1'
+          patches={}
+
+          def read(name):
+              path=root/name
+              if not path.is_file():
+                  raise SystemExit(
+                      'Não encontrei '+name+'. Nenhum arquivo foi alterado.'
+                  )
+              return path.read_text(encoding='utf-8')
+
+          def change(source,old,new):
+              if source.count(old)!=1:
+                  raise SystemExit(
+                      'Um trecho do painel mudou. Nenhum arquivo foi alterado. Trecho: '+old[:90]
+                  )
+              return source.replace(old,new,1)
+
+          for name in [
+              'src/app/carrinho/page.tsx',
+              'src/components/cart/CartDrawer.tsx'
+          ]:
+              source=read(name)
+              if marker not in source:
+                  source,count=re.subn(
+                      r'<button\b[^>]*\bdisabled\b[^>]*>\s*Finalizar Compra(?:\s*·\s*Em breve)?\s*</button>',
+                      '<Link href="/checkout" className="flex min-h-[48px] w-full items-center justify-center rounded-full bg-[#292621] px-5 py-4 text-[12px] uppercase tracking-[0.12em] text-white">Continuar pedido</Link>',
+                      source
+                  )
+
+                  if count!=1:
+                      raise SystemExit(
+                          'O botão do carrinho mudou em '+name+'. Envie esse arquivo; nenhum arquivo foi alterado.'
+                      )
+
+                  if name.endswith('CartDrawer.tsx'):
+                      source=source.replace(
+                          '<Link href="/checkout"',
+                          '<Link href="/checkout" onClick={closeCart}',
+                          1
+                      )
+
+                  source=source.replace(
+                      'Calculado no checkout',
+                      'A confirmar com a equipe'
+                  ).replace(
+                      'Frete calculado no checkout',
+                      'Frete a confirmar com a equipe'
+                  ).replace(
+                      'Integração de pagamento em breve',
+                      'Frete e pagamento serão confirmados pela equipe'
+                  )
+
+                  patches[name]=source+'\n'+marker+'\n'
+
+          name='src/lib/admin-sales.ts'
+          source=read(name)
+          if marker not in source:
+              source=change(
+                  source,
+                  'export interface Order {',
+                  'export interface Order { source?:string; shipping_pending?:boolean; delivery_address?:Record<string,string>|null;'
+              )
+              patches[name]=source+'\n'+marker+'\n'
+
+          name='src/app/admin/pedidos/OrderStatus.tsx'
+          source=read(name)
+          if marker not in source:
+              source=change(
+                  source,
+                  '({id,status}:{id:string;status:string})',
+                  '({id,status,canConfirm=true}:{id:string;status:string;canConfirm?:boolean})'
+              )
+              source=change(
+                  source,
+                  '{options.map(([value,label])',
+                  '{options.filter(([value])=>canConfirm || value!=="paid").map(([value,label])'
+              )
+              patches[name]=source+'\n'+marker+'\n'
+
+          name='src/app/admin/pedidos/[id]/page.tsx'
+          source=read(name)
+          if marker not in source:
+              source="import OrderOrigin from '@/components/admin/OrderOrigin'\n"+source
+              source=change(
+                  source,
+                  '<OrderStatus id={order.id} status={order.status} />',
+                  '<OrderStatus id={order.id} status={order.status} canConfirm={!order.shipping_pending} />'
+              )
+              source=change(
+                  source,
+                  '<section className="rounded-3xl border border-[#E5DED3] bg-white p-5 sm:p-7">',
+                  '<OrderOrigin source={order.source} shippingPending={order.shipping_pending} address={order.delivery_address} /><section className="rounded-3xl border border-[#E5DED3] bg-white p-5 sm:p-7">'
+              )
+              source=change(
+                  source,
+                  '· Registro manual</p>',
+                  '· {order.source === "site" ? "Site" : "Registro manual"}</p>'
+              )
+              patches[name]=source+'\n'+marker+'\n'
+
+          name='src/app/admin/pedidos/page.tsx'
+          source=read(name)
+          if marker not in source:
+              source=change(
+                  source,
+                  "'id,number,status,created_at,customer_snapshot,total'",
+                  "'id,number,status,created_at,customer_snapshot,total,source,shipping_pending'"
+              )
+              source=change(
+                  source,
+                  '· {SALE_STATUS[order.status]}</p>',
+                  '· {SALE_STATUS[order.status]} · {order.source === "site" ? "Site" : "Manual"}{order.shipping_pending ? " · Frete a confirmar" : ""}</p>'
+              )
+              patches[name]=source+'\n'+marker+'\n'
+
+          for name,content in {**files,**patches}.items():
+              target=root/name
+              target.parent.mkdir(parents=True,exist_ok=True)
+              target.write_text(content,encoding='utf-8')
+
+          print('Carrinho ligado ao envio de pedidos. Frete e pagamento ainda aguardam integração.')
+          PY
+
+      - run: npm ci --ignore-scripts
+      - run: npx tsc --noEmit --incremental false
+      - run: npx next lint --no-cache
+
+      - name: Salvar atualização
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/app/checkout src/app/carrinho/page.tsx src/components/cart/CartDrawer.tsx src/components/admin/OrderOrigin.tsx src/lib/checkout.ts src/lib/checkout-server.ts src/lib/admin-sales.ts src/app/admin/pedidos
+
+          if git diff --cached --quiet; then
+            echo "Carrinho já conectado."
+          else
+            git commit -m "Conectar carrinho a pedidos privados com validação de preços"
+            git push origin HEAD:main
+          fi

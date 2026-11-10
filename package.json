@@ -1,0 +1,41 @@
+{
+  "name": "serenity-piercings",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint",
+    "test:payments": "node --test tests/checkout-payment.test.cjs tests/payment-production.test.cjs tests/payment-card.test.cjs tests/payment-database.test.mjs"
+  },
+  "dependencies": {
+    "@mercadopago/sdk-react": "1.0.7",
+    "@supabase/ssr": "0.12.7",
+    "@supabase/supabase-js": "2.118.0",
+    "clsx": "2.1.1",
+    "lucide-react": "0.436.0",
+    "next": "14.2.5",
+    "nodemailer": "7.0.12",
+    "react": "18.3.1",
+    "react-dom": "18.3.1",
+    "sharp": "0.34.5",
+    "zustand": "4.5.4"
+  },
+  "devDependencies": {
+    "@electric-sql/pglite": "0.3.14",
+    "@types/node": "20.16.5",
+    "@types/nodemailer": "7.0.5",
+    "@types/react": "18.3.5",
+    "@types/react-dom": "18.3.0",
+    "autoprefixer": "10.4.20",
+    "eslint": "8.57.0",
+    "eslint-config-next": "14.2.5",
+    "postcss": "8.4.45",
+    "tailwindcss": "3.4.10",
+    "typescript": "5.5.4"
+  },
+  "engines": {
+    "node": "22.x"
+  }
+}

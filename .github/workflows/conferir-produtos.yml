@@ -1,0 +1,137 @@
+name: Conferir produtos Serenity
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  conferir:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Conferir o CSV
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import csv
+          import html
+          import io
+          import os
+          from pathlib import Path
+
+          csv.field_size_limit(20_000_000)
+          arquivo = Path("produtos.csv")
+
+          if not arquivo.is_file():
+              encontrados = [p.name for p in Path(".").glob("*.csv")]
+              print("Arquivos CSV na raiz:", encontrados)
+              raise SystemExit("Não encontrei produtos.csv na raiz.")
+
+          dados = arquivo.read_bytes()
+          print("Tamanho do arquivo:", len(dados), "bytes")
+
+          if len(dados) < 100:
+              raise SystemExit(
+                  "O arquivo está vazio ou pequeno demais. "
+                  "Envie o CSV original pelo Upload files."
+              )
+
+          if dados.startswith((b"\xff\xfe", b"\xfe\xff")):
+              codificacao = "utf-16"
+          elif b"\x00" in dados[:100]:
+              codificacao = "utf-16-le"
+          else:
+              codificacao = "utf-8-sig"
+
+          try:
+              texto = dados.decode(codificacao)
+          except UnicodeDecodeError:
+              codificacao = "cp1252"
+              texto = dados.decode(codificacao)
+
+          texto = texto.lstrip("\ufeff\r\n ")
+          if texto.lower().startswith("sep="):
+              texto = texto.split("\n", 1)[-1]
+
+          obrigatorias = {"ID", "Tipo", "Nome", "Imagens"}
+          escolhido = None
+          melhor = (set(), [], ",")
+
+          for separador in [",", ";", "\t"]:
+              leitor = csv.reader(io.StringIO(texto), delimiter=separador)
+              cabecalho = next(leitor, [])
+              cabecalho = [
+                  c.strip().lstrip("\ufeff") for c in cabecalho
+              ]
+              reconhecidas = obrigatorias.intersection(cabecalho)
+              if len(reconhecidas) > len(melhor[0]):
+                  melhor = (reconhecidas, cabecalho, separador)
+              if obrigatorias.issubset(cabecalho):
+                  escolhido = separador
+                  break
+
+          print("Codificação:", codificacao)
+
+          if escolhido is None:
+              print("Início do arquivo:", repr(texto[:250]))
+              print("Colunas reconhecidas:", melhor[1][:15])
+              raise SystemExit(
+                  "Cabeçalho diferente do esperado. "
+                  "Copie as linhas acima para analisarmos."
+              )
+
+          leitor = csv.DictReader(
+              io.StringIO(texto), delimiter=escolhido
+          )
+          leitor.fieldnames = [
+              c.strip().lstrip("\ufeff") for c in leitor.fieldnames
+          ]
+          linhas = list(leitor)
+
+          def tipo(p):
+              return (p.get("Tipo") or "").split(",")[0].strip()
+
+          produtos = [
+              p for p in linhas
+              if tipo(p) in {"simple", "variable", "grouped", "external"}
+          ]
+          variacoes = [p for p in linhas if tipo(p) == "variation"]
+          publicados = [
+              p for p in produtos
+              if (p.get("Publicado") or "").strip() == "1"
+          ]
+          fotos_2025 = [
+              p for p in publicados
+              if "/2025/" in (p.get("Imagens") or "")
+          ]
+
+          resumo = [
+              "# Conferência do catálogo",
+              "",
+              f"- Registros no CSV: **{len(linhas)}**",
+              f"- Produtos sem contar variações: **{len(produtos)}**",
+              f"- Variações: **{len(variacoes)}**",
+              f"- Produtos publicados: **{len(publicados)}**",
+              f"- Publicados com fotos de 2025: **{len(fotos_2025)}**",
+              "",
+              "## Exemplos com fotos de 2025",
+              "",
+          ]
+
+          for p in fotos_2025[:10]:
+              nome = html.escape(p.get("Nome") or "").replace("\n", " ")
+              resumo.append(f"- {p.get('ID')}: {nome}")
+
+          resultado = "\n".join(resumo)
+          print(resultado)
+
+          with open(
+              os.environ["GITHUB_STEP_SUMMARY"], "w", encoding="utf-8"
+          ) as f:
+              f.write(resultado)
+          PY

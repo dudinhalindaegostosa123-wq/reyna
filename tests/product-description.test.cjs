@@ -1,0 +1,26 @@
+const {test}=require('node:test'),assert=require('node:assert/strict'),{load}=require('./helpers/load.cjs'),{renderer,nodes}=require('./helpers/render.cjs')
+const fixture=()=>renderer('src/components/product/ProductDescription.tsx',{'@/lib/data':load('src/lib/data.ts'),'@/lib/stem-description':load('src/lib/stem-description.ts')})
+test('description renders accessible technical tables, prose and literal unsafe values',()=>{
+ const tree=fixture().render({value:'<p>Detalhes da peça.</p><table><tr><th>Material</th><td>Titânio</td></tr><tr><th>Medidas</th><td>1,2 mm &lt;img onerror=evil&gt;</td></tr></table><p>Cuidados: pano macio.</p>'})
+ assert.equal(nodes(tree,n=>n.type==='table').length,1)
+ assert.equal(nodes(tree,n=>n.type==='th'&&n.props.scope==='row').length,2)
+ assert.equal(nodes(tree,n=>n.type==='caption')[0].props.children,'Ficha técnica')
+ assert.equal(nodes(tree,n=>n.type==='img'||n.type==='script').length,0)
+ assert.match(JSON.stringify(tree),/Cuidados: pano macio/)
+ assert.match(JSON.stringify(tree),/1,2 mm/)
+})
+test('empty and unstructured descriptions remain readable without fabricated tables',()=>{
+ assert.equal(fixture().render({value:''}),null)
+ const tree=fixture().render({value:'<h3>Cuidados</h3><p>Guarde em local seco.</p>'})
+ assert.equal(nodes(tree,n=>n.type==='table').length,0)
+ assert.equal(nodes(tree,n=>n.type==='h3').length,1)
+})
+
+test('variant tables retain every code, shaft measurement and weight on three columns',()=>{
+ const tree=fixture().render({value:'<table><tr><th>Código</th><th>Medida da haste</th><th>Peso informado</th></tr><tr><td>OR113</td><td>1,2 × 6 mm</td><td>0,630 g</td></tr><tr><td>OR114</td><td>1,2 × 8 mm</td><td>0,664 g</td></tr></table>'})
+ assert.equal(nodes(tree,n=>n.type==='table').length,1)
+ assert.equal(nodes(tree,n=>n.type==='td').length,4)
+ assert.match(JSON.stringify(tree),/OR113/)
+ assert.match(JSON.stringify(tree),/0,664 g/)
+ assert.equal(nodes(tree,n=>n.type==='caption')[0].props.children,'Medidas e variações')
+})
