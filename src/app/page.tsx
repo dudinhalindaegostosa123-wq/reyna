@@ -129,11 +129,13 @@ export default async function HomePage() {
     getStoneCollections(),
   ])
 
-  const hero = banners === null
+  const useDefaultBanners = banners === null || banners.length === 0
+
+  const hero = useDefaultBanners
     ? FALLBACK_HERO
     : banners.find(banner => banner.slot === 'hero')
 
-  const categoryBanners = (banners === null
+  const categoryBanners = (useDefaultBanners
     ? CATEGORY_BANNERS
     : banners
         .filter(banner => bannerPlacement(banner) === 'category')
