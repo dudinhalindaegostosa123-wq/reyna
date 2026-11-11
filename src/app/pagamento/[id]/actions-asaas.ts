@@ -108,3 +108,14 @@ export async function refreshAsaasCheckoutPayment(id: string): Promise<Result> {
     return { error: 'Não foi possível consultar agora. Não gere outra cobrança; tente atualizar a situação.', ...(session ? { session } : {}) }
   }
 }
+
+export async function guestCheckoutTrackingLink(id: string): Promise<{ error: string; url?: string }> {
+  try {
+    if (!UUID.test(id)) throw new Error('CHECKOUT_ACCESS_INVALID')
+    const db = await checkoutDatabase('review')
+    const { session } = await readCheckoutSessionV2(db, id)
+    if (!session.guestCheckout) throw new Error('CHECKOUT_ACCESS_INVALID')
+    const { guestEmailLink } = await import('@/lib/guest-tracking-server')
+    return { error: '', url: await guestEmailLink(db, id) }
+  } catch { return { error: 'Não foi possível abrir o link. Use o acompanhamento neste navegador ou fale com a equipe.' } }
+}

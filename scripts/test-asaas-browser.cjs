@@ -10,6 +10,7 @@ const initial={id:'11111111-1111-4111-8111-111111111111',state:'pending',environ
  paymentOptions:{pixTotalCents:9500,cardTotalCents:10000,pixDiscountCents:500,appliedDiscountCents:0,selectedMethod:null}}
 const bootstrap=`
 window.events=[];window.session=${JSON.stringify(initial)};
+if(location.search.includes("guest=1"))window.session.guestCheckout=true;
 const cart=()=>({clearCart:()=>{}});cart.getState=()=>({items:[]});
 const mocks={
  'react':React,
@@ -21,6 +22,7 @@ const mocks={
   return {error:'',session:window.session};
  }},
  './actions-asaas':{
+  guestCheckoutTrackingLink:async()=>({error:'',url:location.origin+'/acompanhar#'+'f'.repeat(64)}),
   startAsaasCheckoutPayment:async(id,attempt,method,total,card)=>{
    window.events.push({method,total,cardProvided:Boolean(card?.number&&card?.ccv),clearedBeforeSend:!document.querySelector('[name=number]')?.value});
    window.session=method==='card'?{...window.session,state:'converted',orderId:id,orderNumber:123}:
@@ -75,6 +77,17 @@ const server=http.createServer((req,res)=>{
   assert.equal(page.url(),url+'/')
   assert.equal(await page.locator('a[href*="asaas.com"]').count(),0)
   assert.deepEqual(errors,[])
-  console.log('PASS: Chromium: Pix selection, authoritative discount, inline code, duplicate button blocked, refresh confirmation; card fields, clearing before submit, inline approval, no redirect. Server actions simulated; no charge created.')
+  await page.goto(url+'/?guest=1')
+  await page.getByRole('button',{name:/^Pix/}).click()
+  await page.getByRole('button',{name:'Gerar Pix'}).click()
+  await page.getByLabel('Pix copia e cola').waitFor()
+  await page.getByRole('button',{name:'Atualizar situação do pagamento'}).click()
+  await page.getByRole('heading',{name:'Pagamento confirmado'}).waitFor()
+  await page.getByRole('button',{name:'Copiar link de acompanhamento'}).click()
+  const tracking=page.getByRole('link',{name:'Abrir link de acompanhamento'})
+  await tracking.waitFor()
+  assert.equal(await tracking.getAttribute('href'),url+'/acompanhar#'+'f'.repeat(64))
+  assert.deepEqual(errors,[])
+  console.log('PASS: Chromium: Pix selection, authoritative discount, inline code, duplicate button blocked, refresh confirmation; card fields, clearing before submit, inline approval, no redirect; guest confirmation provides a private tracking link. Server actions simulated; no charge created.')
  }finally{await browser.close();await new Promise(resolve=>server.close(resolve))}
 })().catch(e=>{console.error(e);server.close();process.exitCode=1})

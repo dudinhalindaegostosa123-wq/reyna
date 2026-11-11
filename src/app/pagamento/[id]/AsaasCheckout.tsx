@@ -4,7 +4,7 @@ import Link from 'next/link'
 import { useEffect, useRef, useState, type FormEvent } from 'react'
 import type { CheckoutSessionV2 } from '@/lib/checkout-session-server-v2'
 import { useCartStore } from '@/lib/cart'
-import { startAsaasCheckoutPayment, refreshAsaasCheckoutPayment } from './actions-asaas'
+import { startAsaasCheckoutPayment, refreshAsaasCheckoutPayment, guestCheckoutTrackingLink } from './actions-asaas'
 import { selectPaymentMethodV4 } from './actions-v2'
 
 const money = (cents: number) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(cents / 100)
@@ -20,6 +20,8 @@ export default function AsaasCheckout({ initial, enabled, queryEnabled, configur
   const [now, setNow] = useState(Date.now())
   const [copied, setCopied] = useState(false)
   const [cardPrivacyReady, setCardPrivacyReady] = useState(false)
+  const [trackingUrl, setTrackingUrl] = useState('')
+  const [trackingNotice, setTrackingNotice] = useState('')
   const request = useRef(false)
   const attemptId = useRef<string | null>(null)
   const clearCart = useCartStore(state => state.clearCart)
@@ -124,7 +126,22 @@ export default function AsaasCheckout({ initial, enabled, queryEnabled, configur
     <p className="mt-3 text-xl">{money(session.totalCents)}</p>
     {session.environment === 'test' && <p className="mt-3 rounded-lg bg-amber-50 p-3">Ambiente de testes: nenhum pedido real será criado.</p>}
     {session.orderId ? <div className="mt-6 space-y-4"><p role="status">{refunded ? 'O pagamento foi estornado. Confira os detalhes com a equipe.' : financialReview ? 'O pagamento precisa de conferência. Fale com a equipe antes de pagar novamente.' : `Recebemos seu pagamento. Pedido #${session.orderNumber} confirmado.`}</p>
-      <Link className="underline" href={session.guestCheckout ? '/acompanhar' : '/minha-conta'}>Acompanhar pedido</Link></div>
+      <Link className="underline" href={session.guestCheckout ? '/acompanhar' : '/minha-conta'}>Acompanhar pedido</Link>
+      {session.guestCheckout && <div className="space-y-3 text-sm">
+        <p>Guarde seu link para acompanhar a compra sem criar conta.</p>
+        <button type="button" className="min-h-[44px] underline" onClick={async () => {
+          try {
+            const result = await guestCheckoutTrackingLink(session.id)
+            if (!result.url) { setTrackingNotice(result.error); return }
+            setTrackingUrl(result.url)
+            try { await navigator.clipboard.writeText(result.url); setTrackingNotice('Link copiado. Guarde em um local seguro.') }
+            catch { setTrackingNotice('Abra o link abaixo e guarde o endereço para acompanhar sua compra.') }
+          } catch { setTrackingNotice('Não foi possível gerar o link agora. Tente novamente.') }
+        }}>Copiar link de acompanhamento</button>
+        {trackingNotice && <p role="status">{trackingNotice}</p>}
+        {trackingUrl && <a className="block underline" href={trackingUrl}>Abrir link de acompanhamento</a>}
+      </div>}
+      </div>
       : session.testApproved ? <p role="status" className="mt-6">Teste aprovado. Nenhuma venda real foi registrada.</p>
       : <>
         {configurationError && <p role="alert" className="mt-4">{configurationError}</p>}

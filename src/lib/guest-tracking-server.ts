@@ -8,7 +8,9 @@ const TOKEN = /^[a-f0-9]{64}$/
 const UUID = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i
 const COOKIE = 'serenity-order-tracking'
 export function guestToken(checkoutId: string) {
-  const secret = process.env.SERENITY_GUEST_TRACKING_SECRET?.trim() || ''
+  // Reuse the existing server credential with a dedicated HMAC purpose when a
+  // separate tracking key is not configured. Neither key reaches the browser.
+  const secret = process.env.SERENITY_GUEST_TRACKING_SECRET?.trim() || process.env.SUPABASE_SECRET_KEY?.trim() || ''
   if (secret.length < 32 || !UUID.test(checkoutId)) throw new Error('GUEST_TRACKING_CONFIGURATION')
   return createHmac('sha256',secret).update('serenity-guest-tracking-v1:'+checkoutId).digest('hex')
 }
@@ -30,8 +32,8 @@ export async function registerGuestCheckout(db: SupabaseClient, id: string, acce
   const registered = await db.rpc('serenity_guest_register_v1',{p_checkout:id,p_access_hash:accessHash,p_token_hash:guestTokenHash(token)})
   if (registered.error || !Number.isSafeInteger(Number(registered.data)) || Number(registered.data)<1) throw new Error('GUEST_CHECKOUT_MIGRATION_REQUIRED')
   writeGuestCookie(token)
-  // The existing scheduled worker sends the queued receipt. Payment must not
-  // wait for SMTP or require the customer to leave this screen.
+  // Payment never waits for SMTP. Complete email installations may also queue
+  // receipts; the initial Lunarity store uses the private tracking link.
 }
 export interface GuestTracking {
   number:number; status:string; total:number; createdAt:string; environment:'test'|'production'; carrier:string|null; trackingCode:string|null

@@ -137,3 +137,21 @@ test('reconciliation rejects foreign customer or amount and missing search resul
  assert.equal(result.found,false);assert.equal(result.review,true)
  assert.ok(f.requests.every(method=>method==='GET'))
 })
+
+test('private guest tracking link requires the checkout capability and guest session',async()=>{
+ let guest=false,authorized=true,links=0
+ const api=load('src/app/pagamento/[id]/actions-asaas.ts',{
+  '@/lib/checkout-server':{checkoutDatabase:async()=>({})},'@/lib/guest-checkout':{},'@/lib/checkout-document':{},
+  '@/lib/checkout-session-server-v2':{readCheckoutSessionV2:async()=>{if(!authorized)throw Error();return {session:{guestCheckout:guest}}}},
+  '@/lib/asaas-server':{},'@/lib/asaas-checkout-server':{},'@/lib/payment-processing-server':{},
+  'next/headers':{},'node:net':{},'@/lib/asaas-card':{},
+  '@/lib/guest-tracking-server':{guestEmailLink:async()=>{links++;return 'https://store.test/acompanhar#private-fixture'}},
+ })
+ assert.equal((await api.guestCheckoutTrackingLink(id)).url,undefined)
+ guest=true;authorized=false
+ assert.equal((await api.guestCheckoutTrackingLink(id)).url,undefined)
+ assert.equal(links,0)
+ authorized=true
+ assert.equal((await api.guestCheckoutTrackingLink(id)).url,'https://store.test/acompanhar#private-fixture')
+ assert.equal(links,1)
+})

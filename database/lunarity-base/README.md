@@ -25,7 +25,8 @@ que contém o catálogo da Lunarity. Não executar os módulos individualmente.
 - Nenhuma cobrança é criada pelo SQL; `ASAAS_PAYMENTS_ENABLED` não é alterado.
 - Clientes precisam entrar em uma conta com e-mail confirmado. Manter
   `SERENITY_GUEST_CHECKOUT_ENABLED=false` nesta instalação inicial. A modalidade
-  visitante exige a instalação separada de seus recursos e do acompanhamento.
+  visitante pode ser habilitada depois com `../asaas/04-compra-sem-cadastro.sql` e
+  `SERENITY_GUEST_CHECKOUT_ENABLED=true`. Veja [o guia](../asaas/README-compra-sem-cadastro.md).
 - A instalação completa de etiquetas, rastreamento, e-mails, histórico legado e
   analytics não está incluída. Pedidos pagos continuam visíveis sem etiquetas.
 - Executa em uma única transação. Um erro desfaz a instalação inteira. Recusa

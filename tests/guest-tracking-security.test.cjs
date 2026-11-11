@@ -59,3 +59,13 @@ test('guest ownership fallback never grants wholesale rights or bypasses a signe
  await access.assertPaymentOwner('owner',{})
  await assert.rejects(access.assertPaymentOwner(undefined,{}),/CHECKOUT_ACCOUNT_MISMATCH/)
 })
+
+test('guest tracking can reuse the configured server key with a separate HMAC purpose',()=>{
+ const key='fixture-server-key-kept-only-on-server-0123456789'
+ const api=load('src/lib/guest-tracking-server.ts',{'node:crypto':crypto,'next/headers':{},'./mercado-pago-server':{}},{SUPABASE_SECRET_KEY:key})
+ const token=api.guestToken(id)
+ assert.equal(token,crypto.createHmac('sha256',key).update('serenity-guest-tracking-v1:'+id).digest('hex'))
+ assert.notEqual(token,crypto.createHmac('sha256',key).update('serenity-checkout-access-v2:'+id).digest('hex'))
+ const dedicated=load('src/lib/guest-tracking-server.ts',{'node:crypto':crypto,'next/headers':{},'./mercado-pago-server':{}},{SUPABASE_SECRET_KEY:key,SERENITY_GUEST_TRACKING_SECRET:secret})
+ assert.equal(dedicated.guestToken(id),fixture().api.guestToken(id))
+})
