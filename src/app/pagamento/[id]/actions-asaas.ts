@@ -55,6 +55,7 @@ export async function startAsaasCheckoutPayment(id: string, attemptId: string, m
     if (claimed.error) throw claimed.error
     if (claimed.data?.submit !== true) return { error: '', session: (await readCheckoutSessionV2(db, id)).session }
     const claim = claimed.data
+    let stage = 'claim_validation'
     try {
       if (!UUID.test(claim.lease_id || '') || claim.checkout_id !== id || claim.attempt_id !== attemptId ||
         claim.environment !== session.environment || claim.merchant_id !== merchant || claim.method !== method ||
@@ -62,29 +63,35 @@ export async function startAsaasCheckoutPayment(id: string, attemptId: string, m
         claim.customer?.document !== document || claim.customer?.email !== customer.email ||
         claim.customer?.name !== customer.name) throw new Error('ASAAS_CLAIM_INVALID')
       // This POST only occurs after the atomic claim. A timeout never retries it.
+      stage = 'customer'
       const customerId = await createAsaasCustomer({ name: customer.name, document, email: customer.email, reference: id })
+      stage = 'customer_binding'
       const bound = await db.rpc('serenity_asaas_customer_v1', { p_attempt: attemptId, p_lease: claim.lease_id, p_customer: customerId })
       if (bound.error) throw bound.error
       const expected: AsaasExpectedPayment = { checkoutId: id, attemptId, customerId,
         amountCents: session.totalCents, method, environment: config.environment }
       const dueDate = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Sao_Paulo', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date())
       const observedAt = new Date().toISOString()
+      stage = 'charge'
       const payment = await createAsaasPayment(expected, dueDate, card ? {
         input: card, remoteIp, email: customer.email, postalCode: address.cep, addressNumber: address.number, phone,
       } : undefined)
+      stage = 'observation'
       await observeCheckoutPayment(db, attemptId, asaasPaymentFacts(payment, expected, merchant, observedAt), 'create')
       if (payment.state === 'pending' && method === 'pix') {
+        stage = 'pix_qr'
         const qr = await readAsaasPix(payment.id, expected)
+        stage = 'pix_observation'
         await observeCheckoutPayment(db, attemptId, asaasPaymentFacts(payment, expected, merchant, observedAt, qr), 'create')
       }
     } catch (error) {
       const code = paymentFailureCode(error)
-      console.error('[asaas-checkout]', { code })
+      console.error('[asaas-checkout]', { code, stage, attempt_id: attemptId })
       const uncertain = await db.rpc('serenity_asaas_uncertain_v1', { p_attempt: attemptId,
         p_lease: claim.lease_id, p_request_hash: hash,
         p_code: code.startsWith('ASAAS_') ? code : 'ASAAS_SUBMISSION_UNCERTAIN' })
       if (uncertain.error) console.error('[asaas-checkout]', { code: 'PAYMENT_DATABASE_UPDATE_FAILED' })
-      return { error: 'A tentativa precisa de conferência. Atualize a situação; não faça outro pagamento.',
+      return { error: `A tentativa precisa de conferência. Atualize a situação; não faça outro pagamento. Referência: ${code}.`,
         session: (await readCheckoutSessionV2(db, id)).session }
     }
     return { error: '', session: (await readCheckoutSessionV2(db, id)).session }
@@ -105,7 +112,7 @@ export async function refreshAsaasCheckoutPayment(id: string): Promise<Result> {
     return { error: '', session: (await readCheckoutSessionV2(db, id)).session }
   } catch (error) {
     console.error('[asaas-refresh]', { code: paymentFailureCode(error) })
-    return { error: 'Não foi possível consultar agora. Não gere outra cobrança; tente atualizar a situação.', ...(session ? { session } : {}) }
+    return { error: `Não foi possível consultar agora. Não gere outra cobrança; tente atualizar a situação. Referência: ${paymentFailureCode(error)}.`, ...(session ? { session } : {}) }
   }
 }
 
