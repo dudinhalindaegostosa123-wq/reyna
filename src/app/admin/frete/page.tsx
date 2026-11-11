@@ -24,9 +24,9 @@ export default async function ShippingPage() {
         settingsForm={
           <ShippingSettingsForm settings={settings} />
         }
-        senderForm={
-          <LabelSenderForm initial={sender} />
-        }
+        senderForm={sender.version > 0 ? <LabelSenderForm initial={sender} /> : (
+          <p className="rounded-2xl bg-white p-5 text-sm">A emissão de etiquetas ainda precisa ser configurada. Você já pode salvar os dados reais da embalagem e o CEP de origem acima.</p>
+        )}
         shippingTest={<ShippingTest />}
       />
     </div>

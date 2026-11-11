@@ -41,6 +41,9 @@ export async function loadLabelSender(
     .eq('singleton', true)
     .single()
 
+  if (error && ['42P01', 'PGRST205'].includes(error.code)) {
+    return { fields: { cep: origin }, version: 0 }
+  }
   if (error) throw new Error('LABEL_QUERY')
 
   const fields = textFields(data.fields)

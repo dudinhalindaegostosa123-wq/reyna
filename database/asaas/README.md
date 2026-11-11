@@ -22,6 +22,12 @@ inicial. É uma consulta somente de estrutura: não retorna registros, chaves ne
 definições de funções. Ela permite conferir os tipos do catálogo e quais regras
 de preço já existem, sem substituí-las por suposições.
 
+Para o inventário da Lunarity que contém apenas o catálogo, já existe um
+instalador inicial: **`03-instalar-base-lunarity.sql`**. Executar esse arquivo
+inteiro, uma vez, em vez de aplicar `01-checkout.sql` isoladamente. Ele inclui a
+atualização Asaas ao final. Veja os limites e passos em
+[../lunarity-base/README.md](../lunarity-base/README.md).
+
 `01-checkout.sql` é uma atualização de uma instalação existente de checkout V2/V3.
 Não executa cobranças nem altera credenciais. Aplicar por último, depois dos SQLs
 existentes de checkout, pagamentos, coleção e desconto Pix, se usados pela loja.

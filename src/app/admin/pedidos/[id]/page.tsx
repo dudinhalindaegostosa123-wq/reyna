@@ -102,6 +102,29 @@ export default async function OrderDetail({
 
   const order = data as DetailOrder
 
+  // A new store can receive orders before optional label purchasing is installed.
+  const labels = await db.from('serenity_label_jobs').select('order_id').limit(0)
+  if (labels.error && ['42P01', 'PGRST205'].includes(labels.error.code)) {
+    return <main className="mx-auto max-w-4xl px-5 py-8">
+      <Link href="/admin/pedidos" className="text-sm underline">Voltar aos pedidos</Link>
+      <h1 className="mt-5 text-3xl font-medium">Pedido #{order.number}</h1>
+      <p className="mt-3">{SALE_STATUS[order.status] || order.status} · {saleMoney(order.total)} · {saleDate(order.created_at)}</p>
+      <section className="mt-6 rounded-2xl bg-white p-5">
+        <h2 className="font-medium">Cliente</h2>
+        <p className="mt-2">{order.customer_snapshot.name}</p>
+        <p>{order.customer_snapshot.email} · {order.customer_snapshot.phone}</p>
+        {order.delivery_address && <p className="mt-3 text-sm">{Object.values(order.delivery_address).filter(Boolean).join(' · ')}</p>}
+      </section>
+      <section className="mt-5 divide-y rounded-2xl bg-white px-5">
+        {order.items.map((item, index) => <OrderItemDetails key={index} item={item} index={index} />)}
+      </section>
+      <p className="mt-5 text-sm">Estoque: {order.stock_state === 'debited' ? 'baixa registrada' : order.stock_state}.</p>
+      <p className="mt-3 rounded-xl bg-amber-50 p-4 text-sm">A emissão de etiquetas ainda precisa ser configurada. O pedido e seu pagamento continuam registrados.</p>
+      <Link href="/admin/pagamentos" className="mt-4 inline-block underline">Conferir pagamentos</Link>
+    </main>
+  }
+  if (labels.error) throw new Error('LABEL_JOB_QUERY')
+
   const [
     stockResult,
     purchaseResult,
