@@ -11,6 +11,17 @@ confirmação explícita disso. Parcelamento não está incluído nesta implemen
 
 ## 1. Banco
 
+A marca desta loja é **Lunarity**. O prefixo técnico `serenity_` foi herdado do
+código copiado e não identifica a conta de banco nem o recebedor do pagamento.
+Manter esses nomes por compatibilidade; não copiar clientes, pedidos ou credenciais
+da loja original. A conexão é definida pelas variáveis do projeto da Lunarity.
+
+Se todos os itens do diagnóstico estiverem ausentes, executar também
+`02-inventario-lunarity.sql` e guardar o resultado antes de preparar a instalação
+inicial. É uma consulta somente de estrutura: não retorna registros, chaves nem
+definições de funções. Ela permite conferir os tipos do catálogo e quais regras
+de preço já existem, sem substituí-las por suposições.
+
 `01-checkout.sql` é uma atualização de uma instalação existente de checkout V2/V3.
 Não executa cobranças nem altera credenciais. Aplicar por último, depois dos SQLs
 existentes de checkout, pagamentos, coleção e desconto Pix, se usados pela loja.
