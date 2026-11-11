@@ -17,6 +17,7 @@ export default function AsaasCheckout({ initial, enabled, queryEnabled, configur
   const [method, setMethod] = useState<'pix' | 'card' | null>(initial.attempts[0]?.method || initial.paymentOptions?.selectedMethod || null)
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
+  const [pixUncertain, setPixUncertain] = useState(false)
   const [now, setNow] = useState(Date.now())
   const [copied, setCopied] = useState(false)
   const [cardPrivacyReady, setCardPrivacyReady] = useState(false)
@@ -30,7 +31,7 @@ export default function AsaasCheckout({ initial, enabled, queryEnabled, configur
   const refunded = session.attempts.some(a => a.state === 'refunded')
   const financialReview = session.needsReview || session.attempts.some(a => a.state === 'charged_back')
   const reservationValid = Date.parse(session.reservedUntil) > now
-  const canStart = enabled && !busy && !complete && !session.needsReview && session.state === 'pending' &&
+  const canStart = enabled && !busy && !pixUncertain && !complete && !session.needsReview && session.state === 'pending' &&
     !session.shippingPending && Date.parse(session.reservedUntil) > now + 60000 && !session.attempts.some(a =>
       a.blocksNewAttempt || a.applicationState === 'review' || ['approved','refunded','charged_back'].includes(a.state))
 
@@ -67,7 +68,10 @@ export default function AsaasCheckout({ initial, enabled, queryEnabled, configur
     setBusy(true)
     try {
       const result = await refreshAsaasCheckoutPayment(session.id)
-      if (result.session) setSession(result.session)
+      if (result.session) {
+        setSession(result.session)
+        if (!result.error) setPixUncertain(false)
+      }
       setError(result.error)
     } catch { setError('Não foi possível consultar agora. Não faça outro pagamento; atualize a situação.') }
     finally { request.current = false; setBusy(false) }
@@ -85,14 +89,29 @@ export default function AsaasCheckout({ initial, enabled, queryEnabled, configur
     if (!canStart || request.current) return
     request.current = true
     setBusy(true); setError('')
+    let pixSubmitted = false
     try {
       const result = await selectPaymentMethodV4(session.id, next)
       if (result.session) setSession(result.session)
       setError(result.error)
       if (!result.error && result.session && (!result.session.paymentOptions || result.session.paymentOptions.selectedMethod === next)) {
-        setMethod(next); attemptId.current = null
+        if (method !== next) attemptId.current = null
+        setMethod(next)
+        if (next === 'pix') {
+          attemptId.current ||= crypto.randomUUID()
+          pixSubmitted = true
+          const payment = await startAsaasCheckoutPayment(result.session.id, attemptId.current, 'pix', result.session.totalCents)
+          if (payment.session) setSession(payment.session)
+          else setPixUncertain(true)
+          setError(payment.error)
+        }
       }
-    } catch { setError('Não foi possível selecionar o pagamento. Tente novamente.') }
+    } catch {
+      if (pixSubmitted) {
+        setPixUncertain(true)
+        setError('A resposta do Pix não chegou. Atualize a situação antes de tentar novamente; não faça outro pagamento.')
+      } else setError('Não foi possível selecionar o pagamento. Tente novamente.')
+    }
     finally { request.current = false; setBusy(false) }
   }
 
@@ -158,7 +177,7 @@ export default function AsaasCheckout({ initial, enabled, queryEnabled, configur
             <span className="mt-1 block text-xs">{option === 'pix' ? (session.paymentOptions?.pixDiscountCents ? '5% de desconto nas peças elegíveis' : 'QR Code ou copia e cola') : 'À vista, sem sair do site'}</span>
           </button>)}
         </fieldset>
-        {canStart && method && (method !== 'card' || cardPrivacyReady) && <form onSubmit={submit} className="mt-6 space-y-4" autoComplete="off">
+        {canStart && method === 'card' && cardPrivacyReady && <form onSubmit={submit} className="mt-6 space-y-4" autoComplete="off">
           {method === 'card' && <fieldset disabled={busy} className="grid grid-cols-2 gap-4">
             <legend className="mb-3">Dados do cartão</legend>
             <label className="col-span-2 text-sm">Nome impresso no cartão<input name="holderName" autoComplete="cc-name" required maxLength={100} className={inputClass} /></label>
@@ -170,9 +189,9 @@ export default function AsaasCheckout({ initial, enabled, queryEnabled, configur
             <label className="col-span-2 flex items-start gap-2 text-sm"><input type="checkbox" required className="mt-1" />Confirmo que o e-mail, telefone e endereço informados no checkout são os dados de cobrança do titular.</label>
             <p className="col-span-2 text-xs text-store-muted">O pagamento é processado pelo Asaas. Não salvamos o número do cartão nem o código de segurança.</p>
           </fieldset>}
-          <button disabled={!canStart} className="min-h-[48px] w-full rounded-full bg-store-action px-6 py-3 text-white disabled:opacity-50">{method === 'pix' ? 'Gerar Pix' : `Pagar ${money(session.totalCents)} no cartão`}</button>
+          <button disabled={!canStart} className="min-h-[48px] w-full rounded-full bg-store-action px-6 py-3 text-white disabled:opacity-50">Pagar {money(session.totalCents)} no cartão</button>
         </form>}
-        {busy && <p role="status" className="mt-4">Aguarde, estamos consultando o pagamento…</p>}
+        {busy && <p role="status" className="mt-4">{method === 'pix' ? 'Gerando seu Pix…' : 'Aguarde, estamos consultando o pagamento…'}</p>}
         {attempt?.state === 'pending' && !session.needsReview && <p role="status" className="mt-4">{attempt.method === 'pix' ? 'Pague pelo aplicativo do seu banco e aguarde a confirmação aqui.' : 'Aguardando confirmação do cartão. Não envie outro pagamento.'}</p>}
         {pixVisible && <section className="mt-6 rounded-xl border border-store-border p-5">
           {/* eslint-disable-next-line @next/next/no-img-element */}

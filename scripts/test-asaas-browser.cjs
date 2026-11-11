@@ -9,7 +9,7 @@ const initial={id:'11111111-1111-4111-8111-111111111111',state:'pending',environ
  shippingPending:false,reservedUntil:new Date(Date.now()+10*60000).toISOString(),orderId:null,orderNumber:null,needsReview:false,testApproved:false,attempts:[],
  paymentOptions:{pixTotalCents:9500,cardTotalCents:10000,pixDiscountCents:500,appliedDiscountCents:0,selectedMethod:null}}
 const bootstrap=`
-window.events=[];window.session=${JSON.stringify(initial)};
+window.events=[];window.pixAttemptIds=[];window.session=${JSON.stringify(initial)};
 if(location.search.includes("guest=1"))window.session.guestCheckout=true;
 const cart=()=>({clearCart:()=>{}});cart.getState=()=>({items:[]});
 const mocks={
@@ -25,11 +25,13 @@ const mocks={
   guestCheckoutTrackingLink:async()=>({error:'',url:location.origin+'/acompanhar#'+'f'.repeat(64)}),
   startAsaasCheckoutPayment:async(id,attempt,method,total,card)=>{
    window.events.push({method,total,cardProvided:Boolean(card?.number&&card?.ccv),clearedBeforeSend:!document.querySelector('[name=number]')?.value});
+   if(method==='pix')window.pixAttemptIds.push(attempt);
+   if(location.search.includes('pix-error=1')&&!window.pixFailedOnce){window.pixFailedOnce=true;throw Error('simulated response loss')}
    window.session=method==='card'?{...window.session,state:'converted',orderId:id,orderNumber:123}:
     {...window.session,state:'payment_pending',attempts:[{id:attempt,method,provider:'asaas',state:'pending',applicationState:'pending',blocksNewAttempt:true,pixCode:'pix-code-fixture',pixQr:null,expiresAt:null}]};
    return {error:'',session:window.session};
   },
-  refreshAsaasCheckoutPayment:async()=>{window.session={...window.session,state:'converted',orderId:window.session.id,orderNumber:123};return {error:'',session:window.session};},
+  refreshAsaasCheckoutPayment:async()=>{if(location.search.includes('pix-error=1')&&!window.session.attempts.length)return {error:'',session:window.session};window.session={...window.session,state:'converted',orderId:window.session.id,orderNumber:123};return {error:'',session:window.session};},
  },
 };
 mocks['@/lib/cart'].useCartStore.getState=cart.getState;
@@ -55,7 +57,6 @@ const server=http.createServer((req,res)=>{
   await page.goto(url)
   if(errors.length)throw Error(errors.join('; '))
   await page.getByRole('button',{name:/^Pix/}).click()
-  await page.getByRole('button',{name:'Gerar Pix'}).click()
   await page.getByLabel('Pix copia e cola').waitFor()
   assert.equal(await page.getByLabel('Pix copia e cola').inputValue(),'pix-code-fixture')
   assert.equal(await page.getByRole('button',{name:'Gerar Pix'}).count(),0)
@@ -79,7 +80,6 @@ const server=http.createServer((req,res)=>{
   assert.deepEqual(errors,[])
   await page.goto(url+'/?guest=1')
   await page.getByRole('button',{name:/^Pix/}).click()
-  await page.getByRole('button',{name:'Gerar Pix'}).click()
   await page.getByLabel('Pix copia e cola').waitFor()
   await page.getByRole('button',{name:'Atualizar situação do pagamento'}).click()
   await page.getByRole('heading',{name:'Pagamento confirmado'}).waitFor()
@@ -88,6 +88,16 @@ const server=http.createServer((req,res)=>{
   await tracking.waitFor()
   assert.equal(await tracking.getAttribute('href'),url+'/acompanhar#'+'f'.repeat(64))
   assert.deepEqual(errors,[])
-  console.log('PASS: Chromium: Pix selection, authoritative discount, inline code, duplicate button blocked, refresh confirmation; card fields, clearing before submit, inline approval, no redirect; guest confirmation provides a private tracking link. Server actions simulated; no charge created.')
+  await page.goto(url+'/?pix-error=1')
+  await page.getByRole('button',{name:/^Pix/}).click()
+  await page.getByRole('alert').filter({hasText:'A resposta do Pix não chegou'}).waitFor()
+  assert.equal(await page.getByRole('button',{name:/^Pix/}).isDisabled(),true)
+  assert.equal(await page.evaluate(()=>window.events.length),1)
+  await page.getByRole('button',{name:'Atualizar situação do pagamento'}).click()
+  await page.getByRole('button',{name:/^Pix/}).click()
+  await page.getByLabel('Pix copia e cola').waitFor()
+  const ids=await page.evaluate(()=>window.pixAttemptIds)
+  assert.equal(ids.length,2);assert.equal(ids[0],ids[1])
+  console.log('PASS: Chromium: Pix selection automatically creates one charge with authoritative discount, inline code, duplicate button blocked, refresh confirmation; card fields, clearing before submit, inline approval, no redirect; guest confirmation provides a private tracking link. Server actions simulated; no charge created.')
  }finally{await browser.close();await new Promise(resolve=>server.close(resolve))}
 })().catch(e=>{console.error(e);server.close();process.exitCode=1})
