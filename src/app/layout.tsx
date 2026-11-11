@@ -23,6 +23,9 @@ const cormorant = Cormorant_Garamond({
 
 export const metadata: Metadata = {
   metadataBase: new URL(process.env.NEXT_PUBLIC_SITE_URL || 'https://reyna-three.vercel.app'),
+  verification: {
+    google: 'd_rIRvbCS3nrG2-qzL6ooiG1r7VXjE13a5Jl0YKZu9A',
+  },
   title: {
     default: 'Lunarity | Titânio e Ouro 18k',
     template: '%s | Lunarity',
