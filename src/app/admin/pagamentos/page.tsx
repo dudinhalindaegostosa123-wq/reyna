@@ -6,6 +6,7 @@ import { assertProductionPaymentReady, cardPaymentReady, paymentFailureCode } fr
 import { reconcileAdminPayment, reconcileRecentAdminPayments } from './actions'
 import { asaasConfig } from '@/lib/asaas-server'
 import { assertAsaasReady } from '@/lib/asaas-checkout-server'
+import { guestCheckoutEnabled } from '@/lib/guest-checkout'
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 60
@@ -30,6 +31,9 @@ export default async function PaymentsPage({ searchParams = {} }: { searchParams
   let acceptsPayments = false
   let paymentConfigurationError = ''
   const useAsaas = Boolean(process.env.ASAAS_ENVIRONMENT)
+  const guestEnabled = guestCheckoutEnabled()
+  const guestStatus = await db.rpc('serenity_guest_checkout_ready_v1')
+  const guestInstalled = !guestStatus.error && guestStatus.data?.version === 1 && guestStatus.data?.ready === true
   let cardsReady = false
   try {
     const config = useAsaas ? asaasConfig() : mercadoPagoConfig()
@@ -62,6 +66,8 @@ export default async function PaymentsPage({ searchParams = {} }: { searchParams
       <p className="mt-3 text-sm text-[#756B5D]">Consulte tentativas de pagamento, inclusive quando ainda não existe pedido.</p>
       <section className="mt-6 rounded-2xl border border-[#E5DED3] bg-white p-5 text-sm leading-7">
         <p>Provedor para novas compras: {useAsaas ? 'Asaas' : 'Mercado Pago'}</p>
+        <p>Compra sem cadastro: <strong>{guestEnabled ? 'Ativada' : 'Desativada'}</strong></p>
+        <p>Acompanhamento sem conta: {guestInstalled ? 'Instalado' : 'Instalação pendente ou indisponível'}</p>
         <p>Cartão: {cardsReady ? 'Instalado' : 'Atualização do banco pendente'}</p>
         <p>Ambiente: <strong>{configuration}</strong></p>
         <p>Configuração: {database}</p>
