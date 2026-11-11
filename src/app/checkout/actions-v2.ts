@@ -123,13 +123,18 @@ export async function startCheckoutV2(
   let stage = 'configuration'
   try {
     // O modo de teste depende da configuração, não da branch do deployment.
-    const { environment } =
-      mercadoPagoPublicConfig()
+    const useAsaas = Boolean(process.env.ASAAS_ENVIRONMENT)
+    const asaas = useAsaas ? await import('@/lib/asaas-server') : null
+    if (asaas) asaas.asaasConfig(true)
+    const environment = asaas ? asaas.asaasDatabaseEnvironment() : mercadoPagoPublicConfig().environment
 
     stage = 'database'
     const db = await checkoutDatabase('submit')
     stage = 'readiness'
-    await assertProductionPaymentReady(db)
+    if (asaas) {
+      const { assertAsaasReady } = await import('@/lib/asaas-checkout-server')
+      await assertAsaasReady(db)
+    } else await assertProductionPaymentReady(db)
     stage = 'account'
     const access = await optionalCheckoutAccess(db)
     if (!access.userId && !guestCheckoutEnabled()) {
@@ -145,11 +150,13 @@ export async function startCheckoutV2(
     // Depois do limite de tentativas, confere a credencial sem criar
     // cobrança nem reservar peças.
     stage = 'merchant'
-    await mercadoPagoMerchant()
+    if (asaas) await asaas.asaasMerchant()
+    else await mercadoPagoMerchant()
 
     const fingerprint = checkoutHash(
       JSON.stringify({
         version: 2,
+        ...(asaas ? { provider: 'asaas' } : {}),
         environment,
         items,
         ...contact,

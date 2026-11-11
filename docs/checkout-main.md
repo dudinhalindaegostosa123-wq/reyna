@@ -1,3 +1,5 @@
+> Esta página documenta o fluxo Mercado Pago legado. Para configurar o Asaas na Reyna, siga [o guia Asaas](../database/asaas/README.md).
+
 # Pagamentos da Serenity: Pix e cartão de crédito
 
 A main contém um único checkout ativo. Ele cria uma sessão temporária e só

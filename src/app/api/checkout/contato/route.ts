@@ -25,7 +25,7 @@ export async function POST(request:NextRequest) {
   const db=await checkoutDatabase('review')
   const {error}=await db.rpc('serenity_checkout_contact_save_v1',{
    p_phone:input.phone || null,p_id:input.id,p_token_hash:checkoutHash('checkout-contact:'+input.token),p_name:input.name,p_email:input.email,
-   p_items:input.items,p_estimated_cents:input.estimatedCents,p_environment:process.env.MERCADO_PAGO_ENVIRONMENT==='production'?'production':'test',
+   p_items:input.items,p_estimated_cents:input.estimatedCents,p_environment:(process.env.ASAAS_ENVIRONMENT || process.env.MERCADO_PAGO_ENVIRONMENT)==='production'?'production':'test',
   })
   return NextResponse.json({ok:!error},{status:error?503:200,headers:{'Cache-Control':'no-store'}})
  }catch{return NextResponse.json({ok:false},{status:503})}

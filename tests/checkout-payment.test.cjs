@@ -173,3 +173,20 @@ test('enabled guest checkout keeps customer and address validation, passes null 
  const result=await load('src/app/checkout/actions-v2.ts',mocks).startCheckoutV2(input)
  assert.equal(result.error,'');assert.equal(registered,true);assert.equal(cookies.length,1)
 })
+
+test('Asaas checkout reserves with the configured environment without Mercado Pago credentials',async()=>{
+ const {mocks,calls}=dependencies()
+ mocks['@/lib/mercado-pago-server']={mercadoPagoPublicConfig:()=>{throw Error('must not use Mercado Pago')},mercadoPagoMerchant:async()=>{throw Error('must not use Mercado Pago')}}
+ mocks['@/lib/asaas-server']={asaasConfig:creation=>{assert.equal(creation,true);return {environment:'production'}},asaasDatabaseEnvironment:()=> 'production',asaasMerchant:async()=> '123'}
+ mocks['@/lib/asaas-checkout-server']={assertAsaasReady:async()=>{calls.push('asaas-ready')}}
+ const original=mocks['@/lib/checkout-server'].checkoutDatabase
+ mocks['@/lib/checkout-server'].checkoutDatabase=async()=>{
+  const db=await original();const rpc=db.rpc
+  return {...db,rpc:async(name,args)=>{if(name==='serenity_checkout_start_v2')assert.equal(args.p_environment,'production');return rpc(name,args)}}
+ }
+ const api=load('src/app/checkout/actions-v2.ts',mocks,{ASAAS_ENVIRONMENT:'production'})
+ const result=await api.startCheckoutV2(input)
+ assert.equal(result.error,'')
+ assert.ok(calls.includes('asaas-ready'))
+ assert.ok(calls.includes('serenity_checkout_start_v2'))
+})

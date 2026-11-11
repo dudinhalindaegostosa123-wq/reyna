@@ -110,6 +110,12 @@ test('provider disables preview tracking and supports paid session updates', () 
   assert.equal(privatePage.props.children[0],false)
   effects.splice(0).forEach(effect=>effect())
   assert.equal(initializes,0)
+  pathname='/pagamento/11111111-1111-4111-8111-111111111111'
+  const paymentPage=components.default({enabled:true,children:'payment'})
+  assert.equal(paymentPage.props.children[0],false)
+  assert.equal(paymentPage.props.children[1].props.enabled,false)
+  effects.splice(0).forEach(effect=>effect())
+  assert.equal(initializes,0)
   pathname='/'
   const disabled = components.default({ enabled: false, children: 'checkout' })
   components.GoogleAdsPurchase({ session: paid() })

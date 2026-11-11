@@ -47,6 +47,7 @@ test('hosted card page must belong to the correct Asaas environment',()=>{
  const c=client()
  const card={...expected,method:'card'}
  assert.equal(c.normalizeAsaasPayment(payment({billingType:'CREDIT_CARD'}),card).method,'card')
+ assert.equal(c.normalizeAsaasPayment(payment({billingType:'CREDIT_CARD',invoiceUrl:null,status:'CONFIRMED'}),card).state,'approved')
  for(const invoiceUrl of ['https://attacker.example/i/fixture','https://sandbox.asaas.com.attacker.example/i/a','http://sandbox.asaas.com/i/a','https://user:pass@sandbox.asaas.com/i/a','https://www.asaas.com/i/fixture','https://sandbox.asaas.com:444/i/a']){
   assert.throws(()=>c.normalizeAsaasPayment(payment({invoiceUrl}),expected),/INVOICE_URL_INVALID/)
  }
@@ -125,4 +126,40 @@ test('customer creation stores only expected fields and disables automatic provi
  assert.equal(await c.createAsaasCustomer({name:'Fixture customer',document:'52998224725',email:'fixture@example.test',reference:expected.checkoutId}),'cus_fixture')
  assert.equal(payload.notificationDisabled,true)
  assert.equal(payload.externalReference,expected.checkoutId)
+})
+
+test('transparent card payment sends data only to Asaas and strips card data from the result',async()=>{
+ let sent
+ const c=client(async(url,init)=>{sent={url,init};return response(payment({billingType:'CREDIT_CARD',status:'CONFIRMED',creditCard:{creditCardToken:'must-not-persist'}}))})
+ const card={input:{holderName:'Fixture',number:'4111111111111111',expiryMonth:'12',expiryYear:'2035',ccv:'123',holderDocument:'52998224725'},
+  remoteIp:'203.0.113.10',email:'fixture@example.test',postalCode:'18072000',addressNumber:'1',phone:'11999999999'}
+ const normalized=await c.createAsaasPayment({...expected,method:'card'},'2030-01-20',card)
+ const body=JSON.parse(sent.init.body)
+ assert.equal(body.creditCard.number,card.input.number)
+ assert.equal(body.creditCard.ccv,'123')
+ assert.equal(body.creditCardHolderInfo.cpfCnpj,'52998224725')
+ assert.equal(body.remoteIp,'203.0.113.10')
+ assert.equal(body.billingType,'CREDIT_CARD')
+ assert.equal(body.value,123.45)
+ assert.equal(normalized.state,'approved')
+ for(const secret of [card.input.number,'must-not-persist'])assert.equal(JSON.stringify(normalized).includes(secret),false)
+ assert.equal(normalized.creditCard,undefined)
+ await assert.rejects(c.createAsaasPayment({...expected,method:'card'},'2030-01-20'),/ASAAS_CARD_INPUT_INVALID/)
+ await assert.rejects(c.createAsaasPayment(expected,'2030-01-20',card),/ASAAS_CARD_INPUT_INVALID/)
+})
+
+test('card validator rejects malformed, expired, unknown fields and invalid check digits',()=>{
+ const {validateAsaasCardInput}=load('src/lib/asaas-card.ts')
+ const card={holderName:'Fixture',number:'4111 1111 1111 1111',expiryMonth:'12',expiryYear:'2035',ccv:'123',holderDocument:'529.982.247-25'}
+ assert.equal(validateAsaasCardInput(card).number,'4111111111111111')
+ assert.equal(validateAsaasCardInput(card).holderDocument,'52998224725')
+ for(const changes of [{number:'4111111111111112'},{ccv:'12'},{expiryYear:'2020'},{expiryMonth:'13'},{holderName:''},{token:'unexpected'},{holderDocument:'123'}]){
+  assert.throws(()=>validateAsaasCardInput({...card,...changes}),/ASAAS_CARD_INPUT_INVALID/)
+ }
+})
+
+test('merchant identity is queried without writes and validates account format',async()=>{
+ const c=client(async(url,init)=>{assert.ok(url.endsWith('/myAccount/accountNumber'));assert.equal(init.method,'GET');return response({account:'12345'})})
+ assert.equal(await c.asaasMerchant(),'12345')
+ await assert.rejects(client(async()=>response({account:'not-account'})).asaasMerchant(),/ASAAS_ACCOUNT_INVALID/)
 })

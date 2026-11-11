@@ -1,6 +1,7 @@
 import 'server-only'
 
 import { createHash, timingSafeEqual } from 'node:crypto'
+import type { AsaasCardInput } from './asaas-card'
 
 export type AsaasEnvironment = 'sandbox' | 'production'
 export type AsaasMethod = 'pix' | 'card'
@@ -20,7 +21,7 @@ export interface AsaasPayment {
   method: AsaasMethod
   status: string
   state: 'pending' | 'approved' | 'refunded' | 'review'
-  invoiceUrl: string
+  invoiceUrl: string | null
 }
 
 const UUID = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i
@@ -67,7 +68,7 @@ async function request(path: string, method: 'GET' | 'POST', payload?: unknown):
       method,
       headers: { access_token: config.apiKey, Accept: 'application/json', 'Content-Type': 'application/json', 'User-Agent': 'ReynaCheckout/1.0' },
       body: payload === undefined ? undefined : JSON.stringify(payload),
-      cache: 'no-store', redirect: 'error', signal: AbortSignal.timeout(15000),
+      cache: 'no-store', redirect: 'error', signal: AbortSignal.timeout(10000),
     })
   } catch { throw new Error(method === 'POST' ? 'ASAAS_SUBMISSION_UNCERTAIN' : 'ASAAS_QUERY_FAILED') }
   // Never put remote response bodies, which may contain buyer details, in errors.
@@ -103,11 +104,13 @@ export function normalizeAsaasPayment(value: unknown, expected: AsaasExpectedPay
   if (typeof payment.id !== 'string' || !PAYMENT.test(payment.id) || payment.customer !== expected.customerId ||
     payment.externalReference !== expectedReference || cents(payment.value) !== expected.amountCents ||
     payment.billingType !== (expected.method === 'pix' ? 'PIX' : 'CREDIT_CARD')) throw new Error('ASAAS_PAYMENT_MISMATCH')
-  let invoice: URL
-  try { invoice = new URL(String(payment.invoiceUrl)) } catch { throw new Error('ASAAS_RESPONSE_INVALID') }
-  const host = expected.environment === 'sandbox' ? 'sandbox.asaas.com' : 'www.asaas.com'
-  if (invoice.protocol !== 'https:' || invoice.hostname !== host || invoice.port || invoice.username || invoice.password || !invoice.pathname.startsWith('/i/')) {
-    throw new Error('ASAAS_INVOICE_URL_INVALID')
+  let invoice: URL | null = null
+  if (payment.invoiceUrl != null) {
+    try { invoice = new URL(String(payment.invoiceUrl)) } catch { throw new Error('ASAAS_RESPONSE_INVALID') }
+    const host = expected.environment === 'sandbox' ? 'sandbox.asaas.com' : 'www.asaas.com'
+    if (invoice.protocol !== 'https:' || invoice.hostname !== host || invoice.port || invoice.username || invoice.password || !invoice.pathname.startsWith('/i/')) {
+      throw new Error('ASAAS_INVOICE_URL_INVALID')
+    }
   }
   const status = String(payment.status)
   let state: AsaasPayment['state'] = 'review'
@@ -117,7 +120,7 @@ export function normalizeAsaasPayment(value: unknown, expected: AsaasExpectedPay
   // Partial refunds, manual cash receipts, deletion and disputes require review.
   if (payment.deleted === true || (Array.isArray(payment.refunds) && payment.refunds.length > 0 && state !== 'refunded')) state = 'review'
   return { id: payment.id, customerId: expected.customerId, reference: expectedReference,
-    amountCents: expected.amountCents, method: expected.method, status, state, invoiceUrl: invoice.toString() }
+    amountCents: expected.amountCents, method: expected.method, status, state, invoiceUrl: invoice?.toString() || null }
 }
 
 export async function createAsaasCustomer(input: { name: string; document: string; email: string; reference: string }): Promise<string> {
@@ -132,16 +135,26 @@ export async function createAsaasCustomer(input: { name: string; document: strin
 }
 
 /** Caller must acquire a database submission lease and persist the customer mapping first. */
-export async function createAsaasPayment(expected: AsaasExpectedPayment, dueDate: string): Promise<AsaasPayment> {
+export async function createAsaasPayment(expected: AsaasExpectedPayment, dueDate: string,
+  card?: { input: AsaasCardInput; remoteIp: string; email: string; postalCode: string; addressNumber: string; phone: string }): Promise<AsaasPayment> {
   const externalReference = reference(expected)
   const configuration = asaasConfig(true)
   if (configuration.environment !== expected.environment) throw new Error('ASAAS_ENVIRONMENT_MISMATCH')
   if (!/^\d{4}-\d{2}-\d{2}$/.test(dueDate) || !Number.isFinite(Date.parse(dueDate)) || new Date(dueDate).toISOString().slice(0,10) !== dueDate) throw new Error('ASAAS_DUE_DATE_INVALID')
+  if ((expected.method === 'card') !== Boolean(card)) throw new Error('ASAAS_CARD_INPUT_INVALID')
   const result = await request('/payments', 'POST', {
     customer: expected.customerId,
     billingType: expected.method === 'pix' ? 'PIX' : 'CREDIT_CARD',
     value: expected.amountCents / 100, dueDate, externalReference,
     description: 'Pedido ' + expected.checkoutId,
+    ...(card ? {
+      creditCard: { holderName: card.input.holderName, number: card.input.number,
+        expiryMonth: card.input.expiryMonth, expiryYear: card.input.expiryYear, ccv: card.input.ccv },
+      creditCardHolderInfo: { name: card.input.holderName, email: card.email,
+        cpfCnpj: card.input.holderDocument, postalCode: card.postalCode,
+        addressNumber: card.addressNumber, phone: card.phone },
+      remoteIp: card.remoteIp,
+    } : {}),
   })
   try { return normalizeAsaasPayment(result, expected) }
   catch { throw new Error('ASAAS_SUBMISSION_UNCERTAIN') }
@@ -176,4 +189,27 @@ export async function readAsaasPix(id: string, expected: AsaasExpectedPayment) {
     typeof qr.encodedImage !== 'string' || qr.encodedImage.length > 300000 || !/^[A-Za-z0-9+/]+={0,2}$/.test(qr.encodedImage) ||
     typeof qr.expirationDate !== 'string' || !/^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}:\d{2}/.test(qr.expirationDate)) throw new Error('ASAAS_RESPONSE_INVALID')
   return { payload: qr.payload, encodedImage: qr.encodedImage, expirationDate: qr.expirationDate }
+}
+
+/** Stable numeric account identity; no customer or charge is created. */
+export async function asaasMerchant(): Promise<string> {
+  const account = await request('/myAccount/accountNumber', 'GET')
+  if (typeof account.account !== 'string' || !/^[0-9]{1,40}$/.test(account.account)) {
+    throw new Error('ASAAS_ACCOUNT_INVALID')
+  }
+  return account.account
+}
+
+export function asaasDatabaseEnvironment() {
+  return asaasConfig().environment === 'sandbox' ? 'test' as const : 'production' as const
+}
+
+export async function readAsaasPaymentReference(id: string): Promise<string | null> {
+  if (!PAYMENT.test(id)) throw new Error('ASAAS_PAYMENT_ID_INVALID')
+  const payment = await request('/payments/' + id, 'GET')
+  if (payment.id !== id) throw new Error('ASAAS_PAYMENT_MISMATCH')
+  const ref = payment.externalReference
+  if (typeof ref !== 'string' || ref.length !== 73 ||
+    !UUID.test(ref.slice(0, 36)) || ref[36] !== ':' || !UUID.test(ref.slice(37))) return null
+  return ref
 }

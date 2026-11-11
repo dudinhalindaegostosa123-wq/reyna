@@ -19,7 +19,10 @@ export default async function CheckoutPage() {
   let accountId: string | null = null
   let testMode = false
   try {
-    testMode = mercadoPagoPublicConfig().environment === 'test'
+    if (process.env.ASAAS_ENVIRONMENT) {
+      const { asaasConfig } = await import('@/lib/asaas-server')
+      testMode = asaasConfig(true).environment === 'sandbox'
+    } else testMode = mercadoPagoPublicConfig().environment === 'test'
     accountId = (await optionalCheckoutAccess()).userId
   } catch (error) {
     const code = error instanceof Error ? error.message : ''

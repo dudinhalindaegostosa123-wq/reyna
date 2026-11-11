@@ -31,7 +31,7 @@ export async function assertProductionPaymentReady(db: SupabaseClient) {
 
 export function paymentFailureCode(error: unknown) {
   const message = error instanceof Error ? error.message : ''
-  return /^(MP|PAYMENT)_[A-Z0-9_]{1,70}$/.test(message)
+  return /^(MP|ASAAS|PAYMENT)_[A-Z0-9_]{1,70}$/.test(message)
     ? message : 'PAYMENT_PROCESSING_FAILED'
 }
 
@@ -45,9 +45,10 @@ function refreshViews() {
   revalidatePath('/minha-conta', 'layout')
 }
 
-const columns = 'id,checkout_id,environment,merchant_id,method,amount_cents,provider_payment_id'
+const columns = 'id,checkout_id,environment,merchant_id,method,amount_cents,provider_payment_id,provider'
 
 type Attempt = {
+  provider?: string
   id: string
   checkout_id: string
   environment: 'test' | 'production'
@@ -77,8 +78,8 @@ export async function assertCardPaymentReady(db: SupabaseClient) {
   if (!await cardPaymentReady(db)) throw new Error('MP_CARD_CONFIGURATION')
 }
 
-export async function observeCheckoutPayment(db: SupabaseClient, attempt: string, facts: { method: string }, source: string) {
-  const result = await db.rpc(facts.method === 'card' ? 'serenity_checkout_observe_payment_v3' : 'serenity_checkout_observe_payment_v2', {
+export async function observeCheckoutPayment(db: SupabaseClient, attempt: string, facts: { method: string; provider?: string }, source: string) {
+  const result = await db.rpc(facts.provider === 'asaas' ? 'serenity_asaas_observe_v1' : facts.method === 'card' ? 'serenity_checkout_observe_payment_v3' : 'serenity_checkout_observe_payment_v2', {
     p_attempt: attempt, p_observation: facts, p_source: source,
   })
   if (result.error) throw new Error('PAYMENT_DATABASE_OBSERVE_FAILED')
@@ -105,6 +106,7 @@ export async function processPaymentNotification(db: SupabaseClient, paymentId: 
   if (found.error) throw new Error('PAYMENT_DATABASE_READ_FAILED')
   if (!found.data) return { ignored: true }
   const row = found.data as Attempt
+  if (row.provider === 'asaas') throw new Error('MP_PAYMENT_MISMATCH')
   const merchant = await mercadoPagoMerchant()
   const facts = normalizeMercadoPagoPayment(identity.payment, expected(row, merchant))
   const result = await observeCheckoutPayment(db, row.id, facts, 'webhook')
@@ -122,6 +124,10 @@ export async function reconcilePaymentAttempt(db: SupabaseClient, id: string, so
   const found = await db.from('serenity_checkout_payments_v2').select(columns).eq('id', id).single()
   if (found.error || !found.data) throw new Error('PAYMENT_DATABASE_READ_FAILED')
   const row = found.data as Attempt
+  if (row.provider === 'asaas') {
+    const { reconcileAsaasAttempt } = await import('./asaas-checkout-server')
+    return reconcileAsaasAttempt(db, id, source)
+  }
   const merchant = await mercadoPagoMerchant()
   const facts = await reconcileMercadoPagoPayment(expected(row, merchant), row.provider_payment_id)
   if (!facts) return { found: false, review: true }

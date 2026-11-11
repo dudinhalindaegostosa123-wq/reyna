@@ -47,6 +47,7 @@ export async function startPixV2(
   expectedCents?: number
 ): Promise<Result> {
   try {
+    if (process.env.ASAAS_ENVIRONMENT) throw new Error('PAYMENT_PROVIDER_CHANGED')
     if (
       typeof id !== 'string' ||
       typeof attemptId !== 'string' ||

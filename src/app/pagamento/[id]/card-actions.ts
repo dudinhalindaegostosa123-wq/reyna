@@ -14,6 +14,7 @@ const UUID = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i
 
 export async function startCardPayment(id: string, attemptId: string, raw: unknown, expectedCents?: number): Promise<{ error: string; session?: CheckoutSessionV2 }> {
   try {
+    if (process.env.ASAAS_ENVIRONMENT) throw new Error('PAYMENT_PROVIDER_CHANGED')
     if (typeof id !== 'string' || typeof attemptId !== 'string' || !UUID.test(id) || !UUID.test(attemptId)) {
       throw new Error('CHECKOUT_ACCESS_INVALID')
     }

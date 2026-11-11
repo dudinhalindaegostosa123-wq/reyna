@@ -17,7 +17,7 @@ export default function GoogleAdsProvider({
   children: React.ReactNode
 }) {
   const pathname = usePathname()
-  const enabled = configured && pathname !== '/acompanhar' && !pathname.startsWith('/acompanhar/') && !pathname.startsWith('/admin') && !pathname.startsWith('/minha-conta')
+  const enabled = configured && !pathname.startsWith('/pagamento/') && pathname !== '/acompanhar' && !pathname.startsWith('/acompanhar/') && !pathname.startsWith('/admin') && !pathname.startsWith('/minha-conta')
   useEffect(() => {
     if (enabled) initializeGoogleAds()
   }, [enabled])

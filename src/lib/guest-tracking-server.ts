@@ -39,7 +39,10 @@ export interface GuestTracking {
 export async function readGuestTracking(db: SupabaseClient, token?: string): Promise<GuestTracking|null> {
   const raw = token ?? cookies().get(COOKIE)?.value
   if (!raw || !TOKEN.test(raw)) return null
-  const response = await db.rpc('serenity_guest_tracking_read_v1',{p_hash:guestTokenHash(raw),p_environment:mercadoPagoConfig().environment})
+  const environment = process.env.ASAAS_ENVIRONMENT
+    ? (await import('./asaas-server')).asaasDatabaseEnvironment()
+    : mercadoPagoConfig().environment
+  const response = await db.rpc('serenity_guest_tracking_read_v1',{p_hash:guestTokenHash(raw),p_environment:environment})
   if (response.error) throw new Error('GUEST_TRACKING_UNAVAILABLE')
   const value=response.data
   if (!value) return null

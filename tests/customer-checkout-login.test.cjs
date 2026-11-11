@@ -42,3 +42,16 @@ test('enabled guest checkout renders contact form with optional login and regist
  assert.equal(nodes(guest,n=>n.type==='Link'&&n.props.href==='/minha-conta/entrar?retorno=checkout').length,1)
  assert.equal(nodes(guest,n=>n.type==='Link'&&n.props.href==='/minha-conta/cadastrar?retorno=checkout').length,1)
 })
+
+test('Asaas storefront checkout opens without any Mercado Pago configuration',async()=>{
+ const jsx=(type,props)=>({type,props})
+ const component=load('src/app/checkout/page.tsx',{
+  'react/jsx-runtime':{jsx,jsxs:jsx,Fragment:'fragment'},'next/navigation':{redirect:()=>{throw Error('unexpected redirect')}},
+  'next/link':{default:'Link'},'./CheckoutClient':{default:'Checkout'},
+  '@/lib/guest-checkout':{guestCheckoutEnabled:()=>true,optionalCheckoutAccess:async()=>({userId:null})},
+  '@/lib/mercado-pago-server':{mercadoPagoPublicConfig:()=>{throw Error('must not use Mercado Pago')}},
+  '@/lib/asaas-server':{asaasConfig:()=>({environment:'production'})},
+  '@/lib/checkout-session-server-v2':{checkoutSessionErrorV2:e=>e.message},
+ },{ASAAS_ENVIRONMENT:'production'})
+ assert.equal(nodes(await component.default(),n=>n.type==='Checkout').length,1)
+})

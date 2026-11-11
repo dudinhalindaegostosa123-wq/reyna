@@ -8,6 +8,9 @@ import {
 import { mercadoPagoConfig, mercadoPagoPublicConfig } from '@/lib/mercado-pago-server'
 import { cardPaymentReady } from '@/lib/payment-processing-server'
 import PixCheckoutV2 from './PixCheckoutV2'
+import AsaasCheckout from './AsaasCheckout'
+import { asaasConfig, asaasDatabaseEnvironment } from '@/lib/asaas-server'
+import { assertAsaasReady } from '@/lib/asaas-checkout-server'
 
 export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
@@ -35,6 +38,19 @@ export default async function PaymentPage({
         db,
         params.id
       )
+
+    if (session.attempts[0]?.provider === 'asaas' || (!session.attempts.length && process.env.ASAAS_ENVIRONMENT)) {
+      let enabled = false, queryEnabled = false, configurationError = ''
+      try {
+        asaasConfig()
+        queryEnabled = session.environment === asaasDatabaseEnvironment()
+        await assertAsaasReady(db)
+        asaasConfig(true)
+        enabled = queryEnabled
+        if (!enabled) throw new Error('ASAAS_ENVIRONMENT_MISMATCH')
+      } catch (error) { configurationError = checkoutSessionErrorV2(error) }
+      return <AsaasCheckout initial={session} enabled={enabled} queryEnabled={queryEnabled} configurationError={configurationError} />
+    }
 
     let enabled = false
     let configurationError = ''

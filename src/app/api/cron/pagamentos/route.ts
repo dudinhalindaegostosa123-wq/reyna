@@ -18,7 +18,9 @@ export async function GET(request: Request) {
   let failed = 0
   const started = Date.now()
   try {
-    const { environment } = mercadoPagoConfig()
+    const environment = process.env.ASAAS_ENVIRONMENT
+      ? (await import('@/lib/asaas-server')).asaasDatabaseEnvironment()
+      : mercadoPagoConfig().environment
     const db = paymentDatabase()
     const found = await db.from('serenity_checkout_payments_v2')
       .select('id').eq('environment', environment)

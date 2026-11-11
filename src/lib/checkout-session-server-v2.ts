@@ -13,6 +13,8 @@ const HASH = /^[a-f0-9]{64}$/
 const COOKIE = 'serenity-checkout-v2'
 
 export interface CheckoutAttemptV2 {
+  provider?: 'mercado_pago' | 'asaas'
+  invoiceUrl?: string | null
   id: string
   method: 'pix' | 'card'
   providerPaymentId?: string | null
@@ -252,8 +254,19 @@ export function normalizeCheckoutSessionV2(
         attempt.state === 'pending' &&
         attempt.application_state !== 'review'
 
-      const providerPaymentId = nullableText(attempt.provider_payment_id, 40)
-      if (providerPaymentId && !/^[0-9]{1,40}$/.test(providerPaymentId)) invalid()
+      const provider = attempt.provider == null ? 'mercado_pago' : attempt.provider
+      if (!['mercado_pago', 'asaas'].includes(String(provider))) invalid()
+      const providerPaymentId = nullableText(attempt.provider_payment_id, 104)
+      if (providerPaymentId && !(provider === 'asaas' ? /^pay_[A-Za-z0-9_-]{1,100}$/ : /^[0-9]{1,40}$/).test(providerPaymentId)) invalid()
+      let invoiceUrl: string | null = null
+      if (provider === 'asaas' && canDisplay && attempt.invoice_url != null) {
+        const value = nullableText(attempt.invoice_url, 2048)
+        let url: URL
+        try { url = new URL(value || '') } catch { invalid() }
+        if (url.protocol !== 'https:' || url.hostname !== (context.environment === 'test' ? 'sandbox.asaas.com' : 'www.asaas.com') ||
+          url.port || url.username || url.password || !url.pathname.startsWith('/i/')) invalid()
+        invoiceUrl = url.toString()
+      }
       let cardAuthentication: { externalResourceURL: string; creq: string } | null = null
       if (canDisplay && attempt.method === 'card' && attempt.card_authentication != null) {
         const auth = object(attempt.card_authentication)
@@ -268,6 +281,8 @@ export function normalizeCheckoutSessionV2(
 
       return {
         id: attempt.id,
+        provider: provider as 'mercado_pago' | 'asaas',
+        invoiceUrl,
         providerPaymentId,
         cardAuthentication,
         method: attempt.method as 'pix' | 'card',
@@ -425,6 +440,16 @@ export function checkoutSessionErrorV2(
       : ''
 
   const known: Record<string, string> = {
+    PAYMENT_PROVIDER_CHANGED: 'A integração de pagamento mudou. Atualize a página antes de continuar.',
+    ASAAS_CARD_INPUT_INVALID: 'Confira os dados do cartão, documento do titular, telefone e endereço de cobrança.',
+    ASAAS_PAYMENTS_DISABLED: 'O pagamento online ainda não foi liberado pela equipe.',
+    ASAAS_ENVIRONMENT_REQUIRED: 'O ambiente do pagamento precisa ser configurado pela equipe.',
+    ASAAS_CREDENTIALS_REQUIRED: 'As credenciais do pagamento precisam ser configuradas pela equipe.',
+    ASAAS_CREDENTIAL_ENVIRONMENT_MISMATCH: 'A chave de pagamento não corresponde ao ambiente configurado.',
+    ASAAS_ENVIRONMENT_MISMATCH: 'Esta tentativa pertence a outro ambiente de pagamento. Fale com a equipe.',
+    ASAAS_PRODUCTION_CONFIGURATION: 'A confirmação automática dos pagamentos precisa ser configurada pela equipe.',
+    ASAAS_HTTP_401: 'O Asaas recusou a credencial. A equipe precisa conferir a integração.',
+    ASAAS_HTTP_403: 'O Asaas não autorizou a operação. A equipe precisa conferir a integração.',
     GUEST_TRACKING_CONFIGURATION:
       'O acompanhamento de compras está em configuração. Fale com a Lunarity.',
     GUEST_CHECKOUT_MIGRATION_REQUIRED:
