@@ -3,7 +3,7 @@ import { adminDatabase } from '@/lib/admin-auth'
 import { saleDate, saleMoney } from '@/lib/admin-sales'
 import { mercadoPagoConfig, mercadoPagoPublicConfig } from '@/lib/mercado-pago-server'
 import { assertProductionPaymentReady, cardPaymentReady, paymentFailureCode } from '@/lib/payment-processing-server'
-import { reconcileAdminPayment, reconcileRecentAdminPayments } from './actions'
+import { reconcileAdminPayment, reconcileRecentAdminPayments, releaseRejectedPix } from './actions'
 import { asaasConfig } from '@/lib/asaas-server'
 import { assertAsaasReady } from '@/lib/asaas-checkout-server'
 import { guestCheckoutEnabled } from '@/lib/guest-checkout'
@@ -13,6 +13,8 @@ export const maxDuration = 60
 export const metadata = { title: 'Pagamentos', robots: { index: false, follow: false } }
 
 const messages: Record<string, string> = {
+  'pix-liberado': 'A recusa foi conferida e nenhuma cobrança foi encontrada. O cliente pode atualizar a página do pagamento e selecionar Pix novamente.',
+  'pix-encerrado': 'A recusa foi conferida e nenhuma cobrança foi encontrada. A reserva expirou: volte ao checkout para iniciar uma nova compra.',
   atualizado: 'Consulta concluída. A lista mostra os registros salvos.',
   'nao-localizado': 'O provedor ainda não retornou um pagamento para esta tentativa. Isso não autoriza outra cobrança.',
   conferencia: 'A resposta foi salva, mas a tentativa ainda precisa de conferência. Não gere outra cobrança.',
@@ -57,7 +59,7 @@ export default async function PaymentsPage({ searchParams = {} }: { searchParams
   }
 
   const result = await db.from('serenity_checkout_payments_v2')
-    .select('id,checkout_id,environment,method,amount_cents,state,application_state,last_error_code,provider_payment_id,provider,created_at')
+    .select('id,checkout_id,environment,method,amount_cents,state,application_state,last_error_code,provider_payment_id,provider,asaas_customer_id,created_at')
     .order('created_at', { ascending: false }).limit(100)
 
   return (
@@ -92,10 +94,18 @@ export default async function PaymentsPage({ searchParams = {} }: { searchParams
                   {row.application_state === 'test_approved' && <p className="mt-2 text-sm">Teste aprovado; nenhum pedido real criado.</p>}
                   {row.state === 'approved' && row.application_state === 'applied' && row.environment === 'production' && <Link href={`/admin/pedidos/${row.checkout_id}`} className="mt-3 inline-block text-sm underline">Abrir pedido</Link>}
                 </div>
-                <form action={reconcileAdminPayment}>
+                <div className="space-y-3"><form action={reconcileAdminPayment}>
                   <input type="hidden" name="attempt" value={row.id} />
                   <button className="min-h-[44px] rounded-full border border-[#DCD4C8] px-5 text-sm">Consultar situação</button>
                 </form>
+                {row.provider === 'asaas' && row.method === 'pix' && row.state === 'uncertain' && row.application_state === 'review' &&
+                  row.last_error_code === 'ASAAS_HTTP_400' && !row.provider_payment_id && row.asaas_customer_id &&
+                  <form action={releaseRejectedPix}>
+                    <input type="hidden" name="attempt" value={row.id} />
+                    <button className="min-h-[44px] rounded-full border border-[#DCD4C8] px-5 text-sm">Conferir recusa e liberar nova tentativa</button>
+                    <p className="mt-2 max-w-xs text-xs">Consulta o Asaas antes de liberar. Não cria cobrança e mantém o histórico.</p>
+                  </form>}
+                </div>
               </div>
             </article>
           ))}

@@ -163,3 +163,9 @@ test('merchant identity is queried without writes and validates account format',
  assert.equal(await c.asaasMerchant(),'12345')
  await assert.rejects(client(async()=>response({account:'not-account'})).asaasMerchant(),/ASAAS_ACCOUNT_INVALID/)
 })
+
+test('empty payment search needs explicit consistent pagination metadata before proving absence',async()=>{
+ for(const body of [{data:[]},{data:[],hasMore:false,totalCount:1},{data:[],totalCount:0}]){
+  await assert.rejects(client(async()=>response(body)).findAsaasPayment(expected),/ASAAS_RECONCILE_CONFLICT/)
+ }
+})

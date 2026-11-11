@@ -70,6 +70,9 @@ export default function AsaasCheckout({ initial, enabled, queryEnabled, configur
       const result = await refreshAsaasCheckoutPayment(session.id)
       if (result.session) {
         setSession(result.session)
+        if (result.session.attempts.some(a => a.id === attemptId.current && !a.blocksNewAttempt && a.applicationState === 'applied' && ['rejected', 'cancelled'].includes(a.state))) {
+          attemptId.current = null
+        }
         if (!result.error) setPixUncertain(false)
       }
       setError(result.error)

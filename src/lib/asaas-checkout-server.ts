@@ -79,3 +79,27 @@ export async function processAsaasNotification(db: SupabaseClient, paymentId: st
   if (!result.found || result.review) throw new Error('PAYMENT_ORDER_REVIEW')
   return { ignored: false }
 }
+
+/** Explicit admin recovery: authenticated empty search alone never permits a retry. */
+export async function releaseRejectedAsaasPix(db: SupabaseClient, id: string, actor: string) {
+  const uuid = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i
+  if (!uuid.test(id) || !uuid.test(actor)) throw new Error('PAYMENT_ATTEMPT_INVALID')
+  const found = await db.from('serenity_checkout_payments_v2')
+    .select('id,checkout_id,provider,environment,merchant_id,method,amount_cents,provider_payment_id,asaas_customer_id,state,application_state,last_error_code,lease_id,lease_expires_at,updated_at')
+    .eq('id', id).single()
+  if (found.error || !found.data) throw new Error('PAYMENT_DATABASE_READ_FAILED')
+  const row = found.data
+  // A mapped customer + no payment ID + a definitive HTTP 400 isolates a charge
+  // validation rejection. QR retrieval failures and customer failures do not qualify.
+  if (row.provider !== 'asaas' || row.method !== 'pix' || row.state !== 'uncertain' || row.application_state !== 'review' ||
+    row.last_error_code !== 'ASAAS_HTTP_400' || row.provider_payment_id || !row.asaas_customer_id || row.lease_id || row.lease_expires_at ||
+    row.environment !== asaasDatabaseEnvironment() || row.merchant_id !== await asaasMerchant()) throw new Error('PAYMENT_RECOVERY_UNAVAILABLE')
+  const payment = await findAsaasPayment({ checkoutId: row.checkout_id, attemptId: row.id, customerId: row.asaas_customer_id,
+    amountCents: Number(row.amount_cents), method: 'pix', environment: asaasConfig().environment })
+  if (payment) throw new Error('PAYMENT_RECOVERY_PAYMENT_EXISTS')
+  const result = await db.rpc('serenity_asaas_release_rejected_pix_v1', {
+    p_attempt: row.id, p_expected_updated_at: row.updated_at, p_actor: actor,
+  })
+  if (result.error || result.data?.released !== true) throw new Error('PAYMENT_RECOVERY_UNAVAILABLE')
+  return { retryAvailable: result.data.retry_available === true }
+}

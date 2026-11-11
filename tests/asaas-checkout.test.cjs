@@ -155,3 +155,30 @@ test('private guest tracking link requires the checkout capability and guest ses
  assert.equal((await api.guestCheckoutTrackingLink(id)).url,'https://store.test/acompanhar#private-fixture')
  assert.equal(links,1)
 })
+
+function recovery(overrides={},foundPayment=false){
+ const calls=[],id='22222222-2222-4222-8222-222222222222',actor='33333333-3333-4333-8333-333333333333'
+ const row={id,checkout_id:'11111111-1111-4111-8111-111111111111',provider:'asaas',environment:'test',merchant_id:'123',method:'pix',
+  amount_cents:1000,provider_payment_id:null,asaas_customer_id:'cus_fixture',state:'uncertain',application_state:'review',last_error_code:'ASAAS_HTTP_400',
+  lease_id:null,lease_expires_at:null,updated_at:'2026-11-11T00:00:00.123456Z',...overrides}
+ const db={from:()=>{const q={select:()=>q,eq:()=>q,single:async()=>({data:row})};return q},rpc:async(name,args)=>{calls.push({name,args});return {data:{released:true,retry_available:true}}}}
+ const api=load('src/lib/asaas-checkout-server.ts',{
+  './asaas-server':{asaasDatabaseEnvironment:()=> 'test',asaasConfig:()=>({environment:'sandbox'}),asaasMerchant:async()=> '123',findAsaasPayment:async()=>{calls.push({name:'GET-payment-search'});return foundPayment?{id:'pay_exists'}:null}},
+  './payment-processing-server':{},
+ })
+ return {api,db,id,actor,calls}
+}
+test('admin recovery requires a recorded HTTP 400 charge rejection plus an authenticated empty search',async()=>{
+ const f=recovery();const result=await f.api.releaseRejectedAsaasPix(f.db,f.id,f.actor)
+ assert.equal(result.retryAvailable,true)
+ assert.deepEqual(f.calls.map(c=>c.name),['GET-payment-search','serenity_asaas_release_rejected_pix_v1'])
+ assert.equal(f.calls[1].args.p_expected_updated_at,'2026-11-11T00:00:00.123456Z')
+ for(const patch of [{last_error_code:'ASAAS_SUBMISSION_UNCERTAIN'},{method:'card'},{asaas_customer_id:null},{provider_payment_id:'pay_exists'},{state:'submitting'}]){
+  const blocked=recovery(patch)
+  await assert.rejects(blocked.api.releaseRejectedAsaasPix(blocked.db,blocked.id,blocked.actor),/PAYMENT_RECOVERY_UNAVAILABLE/)
+  assert.equal(blocked.calls.length,0)
+ }
+ const existing=recovery({},true)
+ await assert.rejects(existing.api.releaseRejectedAsaasPix(existing.db,existing.id,existing.actor),/PAYMENT_RECOVERY_PAYMENT_EXISTS/)
+ assert.deepEqual(existing.calls.map(c=>c.name),['GET-payment-search'])
+})

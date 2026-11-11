@@ -18,6 +18,19 @@ export async function reconcileAdminPayment(form: FormData) {
   redirect(`/admin/pagamentos?aviso=${result}`)
 }
 
+export async function releaseRejectedPix(form: FormData) {
+  const { db, user } = await adminDatabase()
+  let notice = 'falha'
+  try {
+    const { releaseRejectedAsaasPix } = await import('@/lib/asaas-checkout-server')
+    const result = await releaseRejectedAsaasPix(db, String(form.get('attempt') || ''), user.id)
+    notice = result.retryAvailable ? 'pix-liberado' : 'pix-encerrado'
+  } catch (error) {
+    console.error('[payment-recovery]', { code: paymentFailureCode(error) })
+  }
+  redirect(`/admin/pagamentos?aviso=${notice}`)
+}
+
 export async function reconcileRecentAdminPayments() {
   const { db } = await adminDatabase()
   const started=Date.now()

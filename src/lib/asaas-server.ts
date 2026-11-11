@@ -178,6 +178,7 @@ export async function findAsaasPayment(expected: AsaasExpectedPayment): Promise<
   if (!Array.isArray(result.data) || result.data.length > 2 || result.hasMore === true || Number(result.totalCount) > 1 || result.data.length > 1) {
     throw new Error('ASAAS_RECONCILE_CONFLICT')
   }
+  if (!result.data.length && (result.totalCount !== 0 || result.hasMore !== false)) throw new Error('ASAAS_RECONCILE_CONFLICT')
   return result.data.length === 0 ? null : normalizeAsaasPayment(result.data[0], expected)
 }
 
