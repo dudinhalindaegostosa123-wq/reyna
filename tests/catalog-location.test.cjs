@@ -4,6 +4,16 @@ const {load}=require('./helpers/load.cjs')
 const api=load('src/lib/catalog-area.ts',{
  '@/lib/commerce-server':{},'./data':{},'./catalog-server':{},'./wholesale-server':{},
 })
+test('Labrets keeps tops included when location and jewelry filters are active',()=>{
+ for(const slugs of [['topo','helix'],['labret','topo','helix']]){
+  const q=api.buildAreaQuery({category:'labret',area:'orelha',subarea:'helix',jewelry:'topo-labret-12',material:'Titânio',page:2,perPage:12},slugs)
+  assert.equal(q.get('and'),'(category_slugs.ov.{labret,topo},category_slugs.ov.{helix})')
+  assert.equal(q.get('jewelry_filters'),'cs.{topo-labret-12}')
+  assert.equal(q.get('material'),'eq.Titânio')
+  assert.equal(q.get('offset'),'12')
+  assert.notEqual(q.get('limit'),'0')
+ }
+})
 test('all jewelry pages offer location filters, with subareas and material applied before pagination',()=>{
  assert.equal(api.supportsAreaFilter('todos'),true)
  assert.equal(api.supportsAreaFilter('piercings-de-ouro-18k'),true)

@@ -105,6 +105,7 @@ interface Options {
 }
 
 const CATEGORY_GROUPS: Record<string, { name: string; slugs: string[] }> = {
+  labret: { name: 'Labrets', slugs: ['labret', 'topo'] },
   'correntes-e-pingentes': { name: 'Correntes e pingentes', slugs: ['correntes', 'pingentes', 'pingente'] },
   'topos-e-correntes': { name: 'Topos', slugs: ['topo', 'correntes'] },
 }

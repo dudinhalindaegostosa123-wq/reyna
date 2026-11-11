@@ -437,7 +437,9 @@ export function buildAreaQuery(
       options.category
     )
   ) {
-    if (cleanSlugs.includes(options.category)) {
+    if (options.category === 'labret') {
+      conditions.push(categoryMatches(['labret', 'topo']))
+    } else if (cleanSlugs.includes(options.category)) {
       conditions.push(
         'category_slugs.cs.{' + options.category + '}'
       )

@@ -39,6 +39,25 @@ function catalog(wholesale = false) {
   return { api, calls }
 }
 
+test('Labrets includes legacy tops in home previews, category metadata and paginated grids', async () => {
+  for (const wholesale of [false, true]) {
+    const { api, calls } = catalog(wholesale)
+    const category = await api.getStoreCategory('labret')
+    assert.equal(category.name, 'Labrets')
+    assert.equal(category.count, 2)
+    assert.deepEqual(Array.from(category.materials), ['Titânio'])
+    const preview = await api.getStorePreview({ category: 'labret', perPage: 4 })
+    assert.deepEqual(Array.from(preview, product => product.id), ['top', 'both'])
+    const page = await api.getStorePage({ category: 'labret', material: 'Titânio', perPage: 1, page: 2 })
+    assert.equal(page.total, 2)
+    assert.equal(page.products[0].id, 'both')
+    assert.equal(page.products[0].price, wholesale ? 50 : 100)
+    assert.equal(calls.at(-1).parsed.searchParams.get('category_slugs'), 'ov.{labret,topo}')
+    const filters = await api.getStoreFilterProducts('labret')
+    assert.deepEqual(Array.from(filters, product => product.id), ['top', 'both'])
+  }
+})
+
 test('home previews omit full counts while category pages retain exact totals and private prices', async () => {
   for (const wholesale of [false, true]) {
     const {api, calls} = catalog(wholesale)
